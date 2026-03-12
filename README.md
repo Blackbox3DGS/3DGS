@@ -1,76 +1,74 @@
-# 3D AI 블랙박스 (3D AI Blackbox) - 3DGS Module
+# 단안 사고 장면 3DGS 파이프라인
 
-## 🚗 프로젝트 개요
-**3D AI 블랙박스**는 차량 사고 데이터를 3D로 시각화하여 사고 정황을 입체적으로 파악할 수 있게 돕는 프로젝트입니다. 
-이 리포지토리는 그 핵심 모듈인 **Single-view 3D Reconstruction** 파트를 담당합니다. 
-단 한 장의 2D 차량/도로 이미지만 입력하면, 즉시 3D Gaussian Splatting(3DGS) 모델(`.ply`)을 생성해냅니다.
+## 개요
+이 리포지토리는 **단안 영상(블랙박스/스마트폰)** 만으로 **교통사고 장면을 3D Gaussian Splatting(3DGS)** 으로 재구성하는 end-to-end 파이프라인을 목표로 합니다. 정적 실내가 아닌 **실외 동적 사고 장면**에 초점을 두며, 단순 품질 지표 향상보다 **사고 분석을 위한 다각도 재현, 궤적 오버레이, 사고 지점 마킹**까지 포함한 실용 목적을 지향합니다.
 
-### 🎯 핵심 목표
-*   **Instant 3D**: LiDAR 없이 2D 이미지만으로 3D 형상 복원.
-*   **Fast Inference**: 사고 현장에서 즉시 활용 가능한 빠른 추론 속도.
-*   **Lightweight**: 무거운 장비 없이 일반 카메라(블랙박스, 스마트폰) 영상 활용.
+## 목표
+"LiDAR 없는 단안 영상에서 교통사고 장면을 3DGS로 재구성하는 end-to-end 파이프라인"
 
----
+## 차별점 및 기여
+- **입력 단순화**: Street Gaussians 같은 기존 방법이 LiDAR + 멀티캠을 요구하는 것과 달리, 단안 영상만으로 동작.
+- **사고 도메인 특화**: 다수의 동적 객체가 있는 교통사고 장면에 맞춘 파이프라인 설계.
+- **동적 객체 마스킹 기반 SfM**: YOLOv8-seg + ByteTrack으로 마스크 생성 후 COLMAP에 `--ImageReader.mask_path` 적용.
+- **Scale Alignment(물리적 prior 주입)**: COLMAP 스케일 정렬 + 카메라 높이 가정으로 절대 단위(m) 확보.
+- **3D 궤적 추출**: 마스크 영역 depth의 중앙값(Median) 사용으로 궤적 안정화.
+- **End-to-End 시스템**: 3DGS + 궤적 + 웹 뷰어 기반 사고 재현.
 
-## 🛠 현재 구현 상태 (Current Status)
-현재 **Phase 1: 프로토타입** 단계가 완료되었습니다.
+## 파이프라인 (Ours)
+1. 입력 영상 (블랙박스/스마트폰, .mp4/.avi)
+1. 프레임 추출
+1. 객체 segmentation + tracking (YOLOv8-seg + ByteTrack)
+1. COLMAP SfM (마스크 적용) → 카메라 포즈/희소 포인트클라우드
+1. Monocular depth (Depth Anything V2)
+1. Scale Alignment (COLMAP + 카메라 높이 prior)
+1. Dense Point Cloud 생성 (역투영)
+1. Outlier Filtering (Open3D SOR)
+1. 3D 궤적 추출 (마스크 영역 depth median)
+1. 3D Gaussian Splatting 학습 (마스크 loss 제외)
+1. Splat 변환 (.ply → .splat)
+1. Web Viewer (궤적/사고 지점 오버레이)
 
-*   **기반 기술**: [Splatter Image (CVPR 2024)](https://github.com/szymanowiczs/splatter-image)
-*   **구현 기능**:
-    *   ✅ **Inference Pipeline**: `inference_splatter.py`를 통해 이미지 입력 → 3DGS 파라미터 추출 → PLY 저장 자동화.
-    *   ✅ **Submodule Integration**: 공식 `splatter-image` 리포지토리를 서브모듈로 연동하여 최신 코드 베이스 유지.
-    *   ✅ **Environment**: Mac(Apple Silicon) 환경에서도 추론 가능한 PyTorch 기반 파이프라인 구축 (CUDA 의존성 우회).
+## Baseline (GT)
+- 입력: Waymo 전방 카메라 + LiDAR
+- Process: Street Gaussians
+- Output: `output.splat` (고품질 기준선)
 
----
+## 평가 계획
+1. **nuScenes (Camera + LiDAR)**
+1. Street Gaussians(LiDAR) vs Ours(LiDAR 무시) → PSNR/SSIM 비교
+1. **블랙박스 영상 (LiDAR 없음)**
+1. Street Gaussians는 실행 불가, Ours는 실행 가능 → 정성 평가
+1. **Vanilla 3DGS 대비**
+1. 단안 3DGS 대비 개선, LiDAR 기반 품질에 근접함을 제시
 
-## 🚀 사용 방법 (Usage)
+## 데이터
+- Waymo (Baseline/Ours)
+- YouTube 사고 영상 (Ours)
 
-### 1. 환경 설정
-```bash
-# 가상환경 활성화
-source ./venv/bin/activate
+## 하드웨어
+- 메인: NVIDIA GeForce RTX 5060 Ti (VRAM 16GB)
+- 테스트: NVIDIA RTX 3060 (VRAM 6GB), Intel i7-12700H, RAM 16GB
 
-# 의존성 설치 (최초 1회)
-pip install -r splatter-image/requirements.txt
+## 리포지토리 구조
+```text
+/Users/kyu216/projects/3DGS
+├── ai-pipeline   # 졸업작품 핵심 파이프라인
+├── backend       # API/DB/작업관리
+├── frontend      # 웹 뷰어 및 서비스 UI
+├── inference_splatter.py
+├── splatter-image
+└── README.md
 ```
 
-### 2. 실행 (Inference)
-준비된 차량 이미지와 사전 학습된 모델 체크포인트가 필요합니다.
+## 라이선스 메모
+- YOLOv8-seg: AGPL-3.0
+- ByteTrack: MIT
+- COLMAP: BSD
+- Depth Anything V2: Apache-2.0 (Small), CC-BY-NC-4.0 (Large)
+- Open3D: MIT
+- gaussian-splatting: Inria (non-commercial)
+- splat-converter: MIT
+- gsplat.js + React: MIT
 
-```bash
-python inference_splatter.py \
-  --image ./data/car_accident.jpg \
-  --output ./output/result.ply \
-  --model ./checkpoints/model_cars.pth
-```
-생성된 `result.ply` 파일은 [Splat](https://splat.antimatter15.com/) 등의 뷰어에서 바로 확인할 수 있습니다.
-
----
-
-## ⚠️ 현재의 한계 및 부족한 점 (Limitations)
-1.  **배경 제거 미적용 (No Background Removal)**
-    *   현재는 입력 이미지의 배경까지 포함하여 3D로 변환됩니다. 차량만 깔끔하게 객체화하기 위해 `rembg` 등을 활용한 전처리 과정 추가가 시급합니다.
-2.  **Mac 렌더링 제한**
-    *   `diff-gaussian-rasterization` 라이브러리의 CUDA 의존성으로 인해, 로컬 Mac 환경에서는 **파라미터 추출(.ply 생성)**만 가능하며, 실시간 렌더링이나 학습(Training)은 불가능합니다.
-3.  **웹 뷰어 부재**
-    *   생성된 3D 모델을 사용자가 웹에서 바로 돌려볼 수 있는 전용 뷰어가 없습니다. (현재는 외부 뷰어 사용 필요)
-
----
-
-## 🗺 향후 계획 (Roadmap)
-
-### Phase 2: 고도화 (Next Step)
-- [ ] **배경 제거 (Background Removal)**: 입력 이미지에서 차량 누끼를 자동으로 따서 3D 변환 품질 향상.
-- [ ] **웹 뷰어 연동**: Three.js 또는 WebGL 기반의 자체 3D 뷰어 페이지 개발.
-- [ ] **자동화 스크립트**: 모델 다운로드 및 폴더 구조 세팅을 위한 `setup.sh` 작성.
-
-### Phase 3: 확장 (Future)
-- [ ] **사고 현장 재구성**: 차량뿐만 아니라 도로, 가드레일 등 주변 환경 3D 매핑.
-- [ ] **멀티뷰 지원**: CCTV 등 여러 각도의 영상이 있을 경우 정합하여 정밀도 향상.
-- [ ] **파인튜닝 (Fine-tuning)**: 실제 사고 데이터셋을 활용하여 파손된 차량에 특화된 모델 학습.
-
----
-
-## 🤝 기여 가이드
-*   `main` 브랜치는 배포용으로 유지합니다.
-*   모든 개발은 **`develop`** 브랜치에서 진행해주세요.
+## 상태
+이 리포지토리는 이전 프로토타입에서 **사고 장면 단안 파이프라인**으로 전환 중입니다.
