@@ -11,33 +11,33 @@
 - 기존: Street Gaussians 등은 LiDAR + 멀티캠 필요
 - Ours: 단안 영상 1개만으로 동작
 
-1. **도메인 특화**
+2. **도메인 특화**
 - 기존: 실내 정적 장면, 단일 물체 위주
 - Ours: 교통사고 장면(다수 동적 객체, 단안 이동 카메라)
 
-1. **동적 객체 마스킹 파이프라인**
+3. **동적 객체 마스킹 파이프라인**
 - YOLOv8-seg로 픽셀 마스크 생성
 - ByteTrack으로 트래킹
 - COLMAP에 `--ImageReader.mask_path` 적용 → 포즈 추정 안정화
 
-1. **응용 목적**
+4. **응용 목적**
 - 기존: 3D 재구성 품질 향상 중심
 - Ours: 사고 과실 판단을 위한 다각도 장면 재현 시스템
   - 웹 뷰어 + 사고 지점 마킹 포함
 
 ## 파이프라인 (Ours)
 1. 입력: 블랙박스/스마트폰 영상 (.mp4/.avi)
-1. 프레임 추출
-1. 객체 segmentation + tracking (YOLOv8-seg + ByteTrack)
-1. COLMAP SfM (마스크 적용)
-1. Depth Anything V2 (단안 depth)
-1. Scale Alignment (COLMAP 스케일 + 카메라 높이 prior)
-1. Dense Point Cloud 생성 (역투영)
-1. 노이즈 필터링 (Open3D SOR)
-1. 3D 궤적 추출 (마스크 영역 depth median)
-1. 3D Gaussian Splatting 학습 (마스크 loss 제외)
-1. .splat 변환
-1. Web Viewer (궤적 오버레이 + 사고 지점 마킹)
+2. 프레임 추출
+3. 객체 segmentation + tracking (YOLOv8-seg + ByteTrack)
+4. COLMAP SfM (마스크 적용)
+5. Depth Anything V2 (단안 depth)
+6. Scale Alignment (COLMAP 스케일 + 카메라 높이 prior)
+7. Dense Point Cloud 생성 (역투영)
+8. 노이즈 필터링 (Open3D SOR)
+9. 3D 궤적 추출 (마스크 영역 depth median)
+10. 3D Gaussian Splatting 학습 (마스크 loss 제외)
+11. .splat 변환
+12. Web Viewer (궤적 오버레이 + 사고 지점 마킹)
 
 ## Baseline (GT)
 - 입력: Waymo 전방 카메라 + LiDAR
@@ -63,7 +63,7 @@
 ## 리포지토리 구조
 ```text
 /Users/kyu216/projects/3DGS
-├── ai-pipeline   # 졸업작품 핵심 파이프라인
+├── ai-pipeline   # 파이프라인
 ├── backend       # API/DB/작업관리
 ├── frontend      # 웹 뷰어 및 서비스 UI
 └── README.md
