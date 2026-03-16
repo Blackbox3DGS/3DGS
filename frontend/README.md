@@ -11,7 +11,6 @@
 
 ## 폴더 구조
 ```text
-/Users/kyu216/projects/3DGS/frontend
 ├── src
 │   ├── components
 │   ├── pages
