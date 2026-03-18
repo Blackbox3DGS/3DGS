@@ -1,0 +1,33 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: main-backend
+  datasource:
+    url: jdbc:mysql://localhost:3306/dgs_db?useSSL=false&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: root
+    password: password # 배포용 환경은 환경 변수로 치환 필요
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+jwt:
+  # 실제로는 Auth 서비스와 연동할 퍼블릭 키 설정 또는 동일한 시크릿 키 필요 (로컬 개발용 더미)
+  secret: dgs-main-backend-jwt-secret-key-must-be-long-enough-for-hs256
+
+cloud:
+  gcp:
+    storage:
+      bucket: local-dev-bucket # 개발용 GCS 버킷 지정
+      project-id: local-dev-project
