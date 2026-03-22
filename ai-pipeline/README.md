@@ -19,10 +19,26 @@
 1. 3D Gaussian Splatting 학습 (마스크 loss 제외)
 1. .splat 변환
 
+## 최종 파이프라인 메모리
+상세 파이프라인 정의는 `/Users/kyu216/projects/3DGS/ai-pipeline/PIPELINE_MEMORY.md`에 정리되어 있습니다.
+
 ## 폴더 구조
 ```text
 /Users/kyu216/projects/3DGS/ai-pipeline
-├── src        # 파이프라인 코드
+├── src        # 파이프라인 코어 모듈
+│   ├── 02_ingest
+│   │   └── ingest
+│   ├── 03_seg
+│   ├── 04_colmap
+│   ├── 05_depth
+│   ├── 06_scale
+│   ├── 07_pointcloud
+│   ├── 08_filtering
+│   ├── 09_trajectory
+│   ├── 10_3dgs
+│   ├── 11_format
+│   ├── 12_viewer
+│   └── frame_extraction.py
 ├── scripts    # 실행 스크립트
 ├── configs    # 설정 파일
 ├── data       # 샘플/중간 데이터
@@ -30,6 +46,17 @@
 └── README.md
 ```
 
+## 프레임 추출 실행 예시
+Waymo TFRecord (전방 카메라, 10fps 기본)
+`python3 /Users/kyu216/projects/3DGS/ai-pipeline/scripts/extract_waymo_front_frames.py --tfrecord /path/to/sample.tfrecord`
+
+일반 영상 (COLMAP용 10fps)
+`python3 /Users/kyu216/projects/3DGS/ai-pipeline/scripts/extract_video_frames.py --video /path/to/video.mp4 --fps 10`
+
+## 시스템 의존성
+`ffmpeg` (영상 프레임 추출)
+`colmap` (카메라 포즈 추정)
+
 ## 현재 상태
-- 파이프라인 설계/문서화 단계
-- 코드 구현은 아직 시작하지 않음
+- 프레임 추출 스크립트 구현
+- 나머지 파이프라인 구현 진행 예정

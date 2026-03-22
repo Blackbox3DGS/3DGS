@@ -1,0 +1,22 @@
+# Core
+numpy
+protobuf
+grpcio-tools
+tqdm
+pillow
+opencv-python
+scipy
+
+# Waymo TFRecord parsing
+tensorflow
+
+# Detection / Tracking
+ultralytics
+
+# Depth / 3DGS (CPU by default; replace with CUDA wheels on server as needed)
+torch
+torchvision
+torchaudio
+
+# Point cloud processing
+open3d

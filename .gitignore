@@ -1,2 +1,10 @@
 venv/
 .DS_Store
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+/ai-pipeline/data/
+/ai-pipeline/outputs/
+/ai-pipeline/third_party/
+CLAUDE.md
