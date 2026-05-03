@@ -10,6 +10,11 @@ import sys
 import traceback
 from pathlib import Path
 
+import numpy as np
+import open3d as o3d
+
+from common.viz import render_pointcloud_topdown
+
 from .data_prep import prepare_scene_dir
 
 logger = logging.getLogger(__name__)
@@ -95,6 +100,26 @@ def _run_impl(context):
 
     context["artifacts"]["output_ply"] = str(output_ply)
     context["artifacts"]["gs_model_dir"] = str(model_dir)
+
+    # ── visualisation: top-down of trained Gaussian centres ────────────
+    vis_path = workspace / "output_topdown.png"
+    try:
+        pcd = o3d.io.read_point_cloud(str(output_ply))
+        pts_np = np.asarray(pcd.points)
+        cols_np = np.asarray(pcd.colors) if pcd.has_colors() else None
+        cam_xyz = None
+        poses_artifact = context["artifacts"].get("poses")
+        if poses_artifact and Path(poses_artifact).exists():
+            cam_xyz = np.load(poses_artifact)[:, :3, 3]
+        render_pointcloud_topdown(
+            pts_np, cam_xyz, vis_path,
+            colors=cols_np,
+            title=f"Stage 10 trained Gaussians ({n_gaussians} pts)",
+        )
+        context["artifacts"]["output_topdown"] = str(vis_path)
+    except Exception as e:
+        logger.warning("Stage 10 viz failed: %s", e)
+
     return context
 
 

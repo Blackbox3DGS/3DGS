@@ -10,6 +10,11 @@ import logging
 import shutil
 from pathlib import Path
 
+import numpy as np
+import open3d as o3d
+
+from common.viz import render_pointcloud_topdown
+
 from .model_parser import (
     parse_cameras_txt,
     parse_images_txt,
@@ -139,6 +144,22 @@ def run(context):
     context["artifacts"]["registered_frames"] = str(reg_frames_path)
     context["artifacts"]["images_3dgs"] = str(images_3dgs_dir)
     context["artifacts"]["colmap_model_dir"] = str(model_dir)
+
+    # 7. Top-down visualisation: sparse PC + camera path
+    sparse_vis = workspace / "sparse_topdown.png"
+    if sparse_ply.exists():
+        try:
+            pcd = o3d.io.read_point_cloud(str(sparse_ply))
+            sparse_pts = np.asarray(pcd.points)
+            poses_arr = np.load(poses_path)
+            cam_xyz = poses_arr[:, :3, 3]
+            render_pointcloud_topdown(
+                sparse_pts, cam_xyz, sparse_vis,
+                title="Stage 04 sparse PC + camera path",
+            )
+            context["artifacts"]["sparse_topdown"] = str(sparse_vis)
+        except Exception as e:  # don't fail the stage on viz issues
+            logger.warning("Stage 04 viz failed: %s", e)
 
     logger.info(
         "Stage 04 complete: %d/%d registered, %d 3DGS frames, sparse PC -> %s",

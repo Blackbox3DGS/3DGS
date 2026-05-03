@@ -8,7 +8,10 @@ import logging
 import traceback
 from pathlib import Path
 
+import numpy as np
 import open3d as o3d
+
+from common.viz import render_pointcloud_topdown
 
 logger = logging.getLogger(__name__)
 
@@ -63,4 +66,23 @@ def _run_impl(context):
     logger.info("Stage 08 complete: %d points -> %s", n_after, filtered_path)
 
     context["artifacts"]["filtered_pointcloud"] = str(filtered_path)
+
+    # ── visualisation: top-down filtered PC (+ camera path if available) ──
+    vis_path = workspace / "filtered_topdown.png"
+    try:
+        pts_np = np.asarray(pcd_filtered.points)
+        cols_np = np.asarray(pcd_filtered.colors) if pcd_filtered.has_colors() else None
+        cam_xyz = None
+        poses_artifact = context["artifacts"].get("poses")
+        if poses_artifact and Path(poses_artifact).exists():
+            cam_xyz = np.load(poses_artifact)[:, :3, 3]
+        render_pointcloud_topdown(
+            pts_np, cam_xyz, vis_path,
+            colors=cols_np,
+            title="Stage 08 filtered PC + camera path",
+        )
+        context["artifacts"]["filtered_topdown"] = str(vis_path)
+    except Exception as e:
+        logger.warning("Stage 08 viz failed: %s", e)
+
     return context

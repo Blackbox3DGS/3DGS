@@ -14,6 +14,7 @@ from .classify import classify_tracks
 from .detect import run_tracking
 from .ego_motion import compute_ego_flow
 from .mask_writer import write_bbox_sequence, write_masks
+from .visualizer import write_seg_overlay_sample
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +61,16 @@ def run(context):
         all_detections, track_states, seg_dir / "bbox_sequence.json"
     )
 
+    # Sample overlay grid for visual inspection
+    overlay_path = seg_dir / "seg_overlay_sample.png"
+    write_seg_overlay_sample(frame_paths, all_detections, track_states, overlay_path)
+
     # Set artifacts
     context["artifacts"]["segmentation_masks"] = masks_path
     context["artifacts"]["bbox_sequence"] = bbox_path
     context["artifacts"]["target_ids"] = "all_dynamic"
+    context["artifacts"]["seg_overlay_sample"] = str(overlay_path)
 
-    logger.info("Stage 03 complete: masks -> %s, bbox -> %s", masks_path, bbox_path)
+    logger.info("Stage 03 complete: masks -> %s, bbox -> %s, overlay -> %s",
+                masks_path, bbox_path, overlay_path)
     return context

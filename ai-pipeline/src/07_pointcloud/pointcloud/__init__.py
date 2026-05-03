@@ -14,6 +14,8 @@ import cv2
 import numpy as np
 import open3d as o3d
 
+from common.viz import render_pointcloud_topdown
+
 from .backproject import backproject_frame
 
 logger = logging.getLogger(__name__)
@@ -133,6 +135,20 @@ def _run_impl(context):
 
     o3d.io.write_point_cloud(str(ply_path), pcd)
     logger.info("Stage 07 complete: %d points -> %s", final_pts, ply_path)
+
+    # ── visualisation: top-down dense PC + camera path ─────────────────
+    vis_path = workspace / "dense_topdown.png"
+    try:
+        pts_np = np.asarray(pcd.points)
+        cols_np = np.asarray(pcd.colors) if pcd.has_colors() else None
+        render_pointcloud_topdown(
+            pts_np, poses[:, :3, 3], vis_path,
+            colors=cols_np,
+            title="Stage 07 dense PC + camera path",
+        )
+        context["artifacts"]["dense_topdown"] = str(vis_path)
+    except Exception as e:
+        logger.warning("Stage 07 viz failed: %s", e)
 
     # ── artifacts ──────────────────────────────────────────────────────
     context["artifacts"]["dense_pointcloud"] = str(ply_path)
