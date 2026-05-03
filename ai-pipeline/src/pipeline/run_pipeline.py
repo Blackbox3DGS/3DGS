@@ -16,9 +16,11 @@ DEFAULT_STEPS = [
     "04_colmap",
     "05_depth",
     "06_scale",
+    # 07 (background dense PC) and 09 (trajectory) both depend only on
+    # Stage 06 output and run in parallel — see PARALLEL_GROUPS below.
     "07_pointcloud",
-    "08_filtering",
     "09_trajectory",
+    "08_filtering",
     "10_3dgs",
     "11_format",
     "12_viewer",
@@ -107,24 +109,32 @@ def _setup_logging(out_root: Path) -> None:
 # Known artifact paths relative to out_root.
 # Used to restore context when resuming from a previous run.
 _ARTIFACT_PATHS = {
-    "images_colmap":      "02_ingest/images_colmap",
-    "segmentation_masks": "03_seg/masks",
-    "bbox_sequence":      "03_seg/bbox_sequence.json",
-    "poses":              "04_colmap/poses.npy",
-    "intrinsics":         "04_colmap/intrinsics.json",
-    "sparse_ply":         "04_colmap/sparse.ply",
-    "registered_frames":  "04_colmap/registered_frames.json",
-    "images_3dgs":        "04_colmap/images_3dgs",
-    "colmap_model_dir":   "04_colmap/sparse/0",
-    "depth_maps":         "05_depth/depth_maps",
-    "depth_vis":          "05_depth/depth_vis",
-    "scaled_depth_maps":  "06_scale/scaled_depth_maps",
-    "scaled_depth_vis":   "06_scale/scaled_depth_vis",
-    "dense_pointcloud":   "07_pointcloud/dense.ply",
-    "filtered_pointcloud":"08_filtering/filtered.ply",
-    "output_ply":         "10_3dgs/model/point_cloud/iteration_30000/point_cloud.ply",
-    "gs_model_dir":       "10_3dgs/model",
-    "output_splat":       "11_format/output.splat",
+    "images_colmap":       "02_ingest/images_colmap",
+    "ingest_vis":          "02_ingest/sample_grid.png",
+    "segmentation_masks":  "03_seg/masks",
+    "bbox_sequence":       "03_seg/bbox_sequence.json",
+    "seg_overlay_sample":  "03_seg/seg_overlay_sample.png",
+    "poses":               "04_colmap/poses.npy",
+    "intrinsics":          "04_colmap/intrinsics.json",
+    "sparse_ply":          "04_colmap/sparse.ply",
+    "registered_frames":   "04_colmap/registered_frames.json",
+    "images_3dgs":         "04_colmap/images_3dgs",
+    "colmap_model_dir":    "04_colmap/sparse/0",
+    "sparse_topdown":      "04_colmap/sparse_topdown.png",
+    "depth_maps":          "05_depth/depth_maps",
+    "depth_vis":           "05_depth/depth_vis",
+    "scaled_depth_maps":   "06_scale/scaled_depth_maps",
+    "scaled_depth_vis":    "06_scale/scaled_depth_vis",
+    "dense_pointcloud":    "07_pointcloud/dense.ply",
+    "dense_topdown":       "07_pointcloud/dense_topdown.png",
+    "filtered_pointcloud": "08_filtering/filtered.ply",
+    "filtered_topdown":    "08_filtering/filtered_topdown.png",
+    "trajectories":        "09_trajectory/trajectories.json",
+    "trajectories_vis":    "09_trajectory/trajectories_topdown.png",
+    "output_ply":          "10_3dgs/model/point_cloud/iteration_30000/point_cloud.ply",
+    "gs_model_dir":        "10_3dgs/model",
+    "output_topdown":      "10_3dgs/output_topdown.png",
+    "output_splat":        "11_format/output.splat",
 }
 
 
@@ -209,6 +219,9 @@ def main() -> None:
     # in the step list.  Their artifact dicts are merged after completion.
     PARALLEL_GROUPS = [
         {"04_colmap", "05_depth"},
+        # Track A (background) Stage 07 vs Track B (trajectory) Stage 09.
+        # Both consume only Stage 06 outputs; safe to run concurrently.
+        {"07_pointcloud", "09_trajectory"},
     ]
 
     idx = 0
@@ -217,13 +230,15 @@ def main() -> None:
         if step not in STAGE_MODULES:
             raise SystemExit(f"Unknown step: {step}")
 
-        # Check if this step starts a parallel group
+        # Check if this step starts a parallel group.
+        # Group members must appear contiguously starting at idx — otherwise
+        # advancing idx by len(group) would skip / re-execute steps.
         parallel = None
         for group in PARALLEL_GROUPS:
             if step in group:
-                remaining = [s for s in steps[idx:] if s in group]
-                if set(remaining) == group:
-                    parallel = remaining
+                chunk = steps[idx : idx + len(group)]
+                if len(chunk) == len(group) and set(chunk) == group:
+                    parallel = chunk
                     break
 
         if parallel and len(parallel) > 1:
