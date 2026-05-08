@@ -21,9 +21,11 @@ interface AnalysisHistoryProps {
   onSelectJob: (jobId: string) => void;
   onRenameVideo: (jobId: string, newTitle: string) => void;
   onDeleteRecord: (jobId: string) => void;
+  // 검색어 변경을 부모(Dashboard)에 통지 → 부모에서 디바운스 후 서버에 keyword 전달
+  onSearchChange?: (keyword: string) => void;
 }
 
-export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameVideo, onDeleteRecord }: AnalysisHistoryProps) {
+export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameVideo, onDeleteRecord, onSearchChange }: AnalysisHistoryProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -34,6 +36,12 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
   const [isExpanded, setIsExpanded] = useState(false);
   // 삭제 확인 다이얼로그용: 삭제 대기 중인 기록
   const [deletingRecord, setDeletingRecord] = useState<AnalysisRecord | null>(null);
+
+  // 검색어 변경 헬퍼: 로컬 state 갱신 + 부모에 통지
+  const updateSearchQuery = (value: string) => {
+    setSearchQuery(value);
+    onSearchChange?.(value);
+  };
 
   const getStatusColor = (status: AnalysisRecord['status']) => {
     switch (status) {
@@ -63,7 +71,7 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
     setEditValue('');
   };
 
-  // 필터링
+  // 필터링 (서버사이드 keyword 검색이 적용되더라도 데모/날짜 필터를 위해 클라이언트 필터 유지)
   const filteredRecords = records.filter(record => {
     const matchesSearch = (record.customTitle ?? '').toLowerCase().includes(searchQuery.toLowerCase());
 
@@ -104,7 +112,7 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
                 type="text"
                 placeholder="영상명 검색..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => updateSearchQuery(e.target.value)}
                 className="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
               />
             </div>
@@ -172,7 +180,7 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
 
           {(accidentDateRange?.from || uploadDateRange?.from || searchQuery) && (
             <button
-              onClick={() => { setAccidentDateRange(undefined); setUploadDateRange(undefined); setSearchQuery(''); }}
+              onClick={() => { setAccidentDateRange(undefined); setUploadDateRange(undefined); updateSearchQuery(''); }}
               className="flex items-center gap-2 px-4 py-2 border border-red-300 bg-red-50 text-red-700 rounded-md text-sm hover:bg-red-100 transition-colors"
             >
               <X className="w-4 h-4" />
