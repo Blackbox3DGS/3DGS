@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Upload, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import { AnalysisHistory } from './AnalysisHistory';
+import { Viewer3D } from './Viewer3D';
 import { useAuth } from '../../context/AuthContext';
 import apiClient from '../../lib/apiClient';
 
@@ -23,16 +24,18 @@ export interface AnalysisRecord {
 function generateNickname(userId: string): string {
   const adjectives = ['빠른', '느린', '조용한', '활발한', '신중한', '대담한', '차분한', '씩씩한', '영리한', '용감한'];
   const nouns = ['독수리', '호랑이', '판다', '여우', '늑대', '사자', '고래', '매', '곰', '토끼'];
+  // userId 문자열로 간단한 해시 생성
   let hash = 0;
   for (let i = 0; i < userId.length; i++) {
     hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
   }
   const adj = adjectives[hash % adjectives.length];
   const noun = nouns[Math.floor(hash / adjectives.length) % nouns.length];
-  const num = (hash % 9000) + 1000;
+  const num = (hash % 9000) + 1000; // 1000~9999
   return `${adj}${noun}${num}`;
 }
 
+// 폴링이 필요한 상태
 const POLLING_STATUSES: AnalysisRecord['status'][] = [
   'PENDING',
   'PRE_PROCESSING',
@@ -40,6 +43,7 @@ const POLLING_STATUSES: AnalysisRecord['status'][] = [
   'PROCESSING',
 ];
 
+// 데모 사용자용 샘플 데이터
 const DEMO_RECORDS: AnalysisRecord[] = [
   {
     jobId: 'demo-1',
@@ -79,6 +83,8 @@ const POLL_INTERVAL_MS = 5000;
 export function Dashboard() {
   const { user, logout } = useAuth();
 
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<AnalysisRecord | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [records, setRecords] = useState<AnalysisRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -87,7 +93,7 @@ export function Dashboard() {
   const isDemo = user?.userId === 'demo';
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 분석 기록 목록 조회
+  // 분석 기록 목록 조회 (데모면 더미 데이터)
   const fetchRecords = async () => {
     if (isDemo) {
       setRecords(DEMO_RECORDS);
@@ -104,7 +110,7 @@ export function Dashboard() {
     }
   };
 
-  // 폴링: 진행 중인 job이 있으면 5초마다 자동 갱신
+  // 폴링: 진행 중인 job이 있으면 5초마다 자동 갱신 (데모는 폴링 안 함)
   const schedulePolling = (data: AnalysisRecord[]) => {
     if (isDemo) return;
     if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
@@ -129,12 +135,23 @@ export function Dashboard() {
     };
   }, []);
 
+  // 폴링 갱신 시 selectedRecord도 동기화
   useEffect(() => {
     if (!records.length) return;
     schedulePolling(records);
   }, [records]);
 
-  // 이름 변경
+  // 선택된 jobId에 맞는 record 동기화
+  useEffect(() => {
+    if (selectedJobId) {
+      const found = records.find(r => r.jobId === selectedJobId) ?? null;
+      setSelectedRecord(found);
+    } else {
+      setSelectedRecord(null);
+    }
+  }, [selectedJobId, records]);
+
+  // 이름 변경 → 백엔드 저장 (데모면 로컬만 변경)
   const handleRenameVideo = async (jobId: string, newTitle: string) => {
     if (isDemo) {
       setRecords(prev =>
@@ -155,6 +172,7 @@ export function Dashboard() {
     }
   };
 
+  // 드래그 앤 드롭 업로드
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
@@ -162,6 +180,7 @@ export function Dashboard() {
     if (file) await uploadFile(file);
   };
 
+  // 파일 선택 업로드
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) await uploadFile(file);
@@ -173,10 +192,12 @@ export function Dashboard() {
       toast.info('데모 모드에서는 파일 업로드가 지원되지 않습니다.');
       return;
     }
+    // 파일 형식 검증
     if (!file.type.startsWith('video/')) {
       toast.error('동영상 파일만 업로드할 수 있습니다.');
       return;
     }
+    // 파일 크기 검증 (2GB 제한)
     if (file.size > 2 * 1024 * 1024 * 1024) {
       toast.error('파일 크기는 2GB 이하여야 합니다.');
       return;
@@ -200,6 +221,7 @@ export function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Header */}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
@@ -228,8 +250,10 @@ export function Dashboard() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Upload Section */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
           <h2 className="text-gray-900 mb-4">새 영상 업로드</h2>
+
           <div
             onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
             onDragLeave={() => setIsDragging(false)}
@@ -264,6 +288,7 @@ export function Dashboard() {
           </div>
         </div>
 
+        {/* Analysis History */}
         {isLoading ? (
           <div className="bg-white rounded-lg shadow-sm p-6 mb-8 flex items-center justify-center h-40">
             <div className="flex flex-col items-center gap-3 text-gray-500">
@@ -274,7 +299,18 @@ export function Dashboard() {
         ) : (
           <AnalysisHistory
             records={records}
+            selectedJobId={selectedJobId}
+            onSelectJob={setSelectedJobId}
             onRenameVideo={handleRenameVideo}
+          />
+        )}
+
+        {/* 3D Viewer: COMPLETED 상태인 것만 표시 */}
+        {selectedRecord && selectedRecord.status === 'COMPLETED' && (
+          <Viewer3D
+            jobId={selectedRecord.jobId}
+            resultUrl={selectedRecord.resultUrl}
+            trajectoryUrl={selectedRecord.trajectoryUrl}
           />
         )}
       </div>

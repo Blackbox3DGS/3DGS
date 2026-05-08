@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Edit2, Check, X, Search, Calendar, Maximize2, Minimize2 } from 'lucide-react';
+import { Eye, Edit2, Check, X, Search, Calendar, Maximize2, Minimize2 } from 'lucide-react';
 import { DayPicker, DateRange } from 'react-day-picker';
 import { format, isWithinInterval, parseISO } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -7,10 +7,12 @@ import { AnalysisRecord } from './Dashboard';
 
 interface AnalysisHistoryProps {
   records: AnalysisRecord[];
+  selectedJobId: string | null;
+  onSelectJob: (jobId: string) => void;
   onRenameVideo: (jobId: string, newTitle: string) => void;
 }
 
-export function AnalysisHistory({ records, onRenameVideo }: AnalysisHistoryProps) {
+export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameVideo }: AnalysisHistoryProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,6 +107,7 @@ export function AnalysisHistory({ records, onRenameVideo }: AnalysisHistoryProps
           </div>
         </div>
 
+        {/* 날짜 필터 */}
         <div className="flex flex-wrap gap-3">
           <div className="relative">
             <button
@@ -182,14 +185,18 @@ export function AnalysisHistory({ records, onRenameVideo }: AnalysisHistoryProps
                   <th className="text-left py-3 px-4 text-gray-700">업로드 날짜</th>
                   <th className="text-left py-3 px-4 text-gray-700">사고 날짜</th>
                   <th className="text-left py-3 px-4 text-gray-700">상태</th>
+                  <th className="text-left py-3 px-4 text-gray-700">작업</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredRecords.map((record) => (
                   <tr
                     key={record.jobId}
-                    className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                    className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${
+                      selectedJobId === record.jobId ? 'bg-indigo-50' : ''
+                    }`}
                   >
+                    {/* 영상명 (편집 가능) */}
                     <td className="py-3 px-4">
                       {editingId === record.jobId ? (
                         <div className="flex items-center gap-2">
@@ -225,19 +232,23 @@ export function AnalysisHistory({ records, onRenameVideo }: AnalysisHistoryProps
                       )}
                     </td>
 
+                    {/* 업로드 날짜 */}
                     <td className="py-3 px-4 text-gray-600">
                       {record.createdAt ? record.createdAt.slice(0, 10) : '-'}
                     </td>
 
+                    {/* 사고 날짜 */}
                     <td className="py-3 px-4 text-gray-900">
                       {record.incidentDate ? record.incidentDate.slice(0, 10) : '-'}
                     </td>
 
+                    {/* 상태 */}
                     <td className="py-3 px-4">
                       <div className="flex flex-col gap-1">
                         <span className={`px-3 py-1 rounded-full text-sm w-fit ${getStatusColor(record.status)}`}>
                           {record.statusDescription || record.status}
                         </span>
+                        {/* 진행 중일 때 진행률 표시 */}
                         {(record.status === 'PROCESSING' || record.status === 'PRE_PROCESSING') && (
                           <div className="flex items-center gap-2">
                             <div className="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
@@ -250,6 +261,18 @@ export function AnalysisHistory({ records, onRenameVideo }: AnalysisHistoryProps
                           </div>
                         )}
                       </div>
+                    </td>
+
+                    {/* 보기 버튼 */}
+                    <td className="py-3 px-4">
+                      <button
+                        onClick={() => { onSelectJob(record.jobId); setIsExpanded(false); }}
+                        className="flex items-center gap-2 px-4 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                        disabled={record.status !== 'COMPLETED'}
+                      >
+                        <Eye className="w-4 h-4" />
+                        보기
+                      </button>
                     </td>
                   </tr>
                 ))}
