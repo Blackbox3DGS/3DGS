@@ -172,6 +172,28 @@ export function Dashboard() {
     }
   };
 
+  // 분석 기록 삭제 → 백엔드 호출 (데모면 로컬만 제거)
+  const handleDeleteRecord = async (jobId: string) => {
+    // 삭제하려는 기록이 현재 선택된 항목이면 선택 해제 (3D 뷰어 닫기)
+    if (selectedJobId === jobId) {
+      setSelectedJobId(null);
+    }
+
+    if (isDemo) {
+      setRecords(prev => prev.filter(r => r.jobId !== jobId));
+      toast.success('삭제되었습니다.');
+      return;
+    }
+    try {
+      await apiClient.delete(`/api/v1/reconstruction/${jobId}`);
+      setRecords(prev => prev.filter(r => r.jobId !== jobId));
+      toast.success('삭제되었습니다.');
+    } catch (err) {
+      console.error('삭제 실패:', err);
+      toast.error('삭제에 실패했습니다.');
+    }
+  };
+
   // 드래그 앤 드롭 업로드
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
@@ -302,6 +324,7 @@ export function Dashboard() {
             selectedJobId={selectedJobId}
             onSelectJob={setSelectedJobId}
             onRenameVideo={handleRenameVideo}
+            onDeleteRecord={handleDeleteRecord}
           />
         )}
 

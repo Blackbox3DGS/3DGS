@@ -1,18 +1,29 @@
 import { useState } from 'react';
-import { Eye, Edit2, Check, X, Search, Calendar, Maximize2, Minimize2 } from 'lucide-react';
+import { Eye, Edit2, Check, X, Search, Calendar, Maximize2, Minimize2, Trash2 } from 'lucide-react';
 import { DayPicker, DateRange } from 'react-day-picker';
 import { format, isWithinInterval, parseISO } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { AnalysisRecord } from './Dashboard';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 
 interface AnalysisHistoryProps {
   records: AnalysisRecord[];
   selectedJobId: string | null;
   onSelectJob: (jobId: string) => void;
   onRenameVideo: (jobId: string, newTitle: string) => void;
+  onDeleteRecord: (jobId: string) => void;
 }
 
-export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameVideo }: AnalysisHistoryProps) {
+export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameVideo, onDeleteRecord }: AnalysisHistoryProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -21,6 +32,8 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
   const [accidentDateRange, setAccidentDateRange] = useState<DateRange | undefined>();
   const [uploadDateRange, setUploadDateRange] = useState<DateRange | undefined>();
   const [isExpanded, setIsExpanded] = useState(false);
+  // 삭제 확인 다이얼로그용: 삭제 대기 중인 기록
+  const [deletingRecord, setDeletingRecord] = useState<AnalysisRecord | null>(null);
 
   const getStatusColor = (status: AnalysisRecord['status']) => {
     switch (status) {
@@ -263,16 +276,26 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
                       </div>
                     </td>
 
-                    {/* 보기 버튼 */}
+                    {/* 보기 / 삭제 버튼 */}
                     <td className="py-3 px-4">
-                      <button
-                        onClick={() => { onSelectJob(record.jobId); setIsExpanded(false); }}
-                        className="flex items-center gap-2 px-4 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-                        disabled={record.status !== 'COMPLETED'}
-                      >
-                        <Eye className="w-4 h-4" />
-                        보기
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => { onSelectJob(record.jobId); setIsExpanded(false); }}
+                          className="flex items-center gap-2 px-4 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                          disabled={record.status !== 'COMPLETED'}
+                        >
+                          <Eye className="w-4 h-4" />
+                          보기
+                        </button>
+                        <button
+                          onClick={() => setDeletingRecord(record)}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                          title="삭제"
+                          aria-label="분석 기록 삭제"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -309,6 +332,36 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
           </div>
         </div>
       )}
+
+      {/* 삭제 확인 다이얼로그 */}
+      <AlertDialog
+        open={deletingRecord !== null}
+        onOpenChange={(open) => { if (!open) setDeletingRecord(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>분석 기록을 삭제하시겠습니까?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="font-medium text-gray-900">
+                "{deletingRecord?.customTitle || '(제목 없음)'}"
+              </span>
+              {' '}기록이 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deletingRecord) onDeleteRecord(deletingRecord.jobId);
+                setDeletingRecord(null);
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
