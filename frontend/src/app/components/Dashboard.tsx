@@ -79,6 +79,7 @@ const DEMO_RECORDS: AnalysisRecord[] = [
 ];
 
 const POLL_INTERVAL_MS = 5000;
+const SEARCH_DEBOUNCE_MS = 300;
 
 export function Dashboard() {
   const { user, logout } = useAuth();
@@ -90,18 +91,33 @@ export function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
 
+  // 검색어 (AnalysisHistory에서 통지받음) + 디바운스된 값
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [debouncedKeyword, setDebouncedKeyword] = useState('');
+
   const isDemo = user?.userId === 'demo';
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 분석 기록 목록 조회 (데모면 더미 데이터)
-  const fetchRecords = async () => {
+  // 분석 기록 목록 조회 (데모면 더미 데이터, 실모드면 keyword 서버 전달)
+  const fetchRecords = async (keyword?: string) => {
     if (isDemo) {
       setRecords(DEMO_RECORDS);
       return DEMO_RECORDS;
     }
     try {
-      const res = await apiClient.get<AnalysisRecord[]>('/api/v1/reconstruction');
-      const data = Array.isArray(res.data) ? res.data : [];
+      const params: Record<string, string> = {};
+      if (keyword && keyword.trim()) params.keyword = keyword.trim();
+      const res = await apiClient.get<AnalysisRecord[] | { result: AnalysisRecord[] }>(
+        '/api/v1/reconstruction',
+        { params }
+      );
+      // BaseResponse 래퍼({ result: [...] })와 직접 배열 응답 둘 다 허용
+      const raw = res.data as unknown;
+      const data: AnalysisRecord[] = Array.isArray(raw)
+        ? (raw as AnalysisRecord[])
+        : Array.isArray((raw as { result?: unknown })?.result)
+        ? ((raw as { result: AnalysisRecord[] }).result)
+        : [];
       setRecords(data);
       return data;
     } catch (err) {
@@ -118,7 +134,7 @@ export function Dashboard() {
     if (!hasInProgress) return;
 
     pollTimerRef.current = setTimeout(async () => {
-      const updated = await fetchRecords();
+      const updated = await fetchRecords(debouncedKeyword);
       if (updated) schedulePolling(updated);
     }, POLL_INTERVAL_MS);
   };
@@ -133,12 +149,32 @@ export function Dashboard() {
     return () => {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 검색어 디바운스: 입력 멈춘 뒤 300ms 후 debouncedKeyword에 반영
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedKeyword(searchKeyword), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [searchKeyword]);
+
+  // 디바운스된 검색어 변경 시 서버 재조회 (데모는 클라이언트 필터로 충분하므로 스킵)
+  useEffect(() => {
+    if (isDemo) return;
+    // 초기 로딩 중에는 위의 첫 useEffect가 처리하므로 중복 호출 방지
+    if (isLoading) return;
+    (async () => {
+      const data = await fetchRecords(debouncedKeyword);
+      if (data) schedulePolling(data);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedKeyword]);
 
   // 폴링 갱신 시 selectedRecord도 동기화
   useEffect(() => {
     if (!records.length) return;
     schedulePolling(records);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [records]);
 
   // 선택된 jobId에 맞는 record 동기화
@@ -231,7 +267,7 @@ export function Dashboard() {
     try {
       await apiClient.post('/api/v1/reconstruction/upload', formData);
       toast.success('업로드 완료! 분석을 시작합니다.');
-      const data = await fetchRecords();
+      const data = await fetchRecords(debouncedKeyword);
       if (data) schedulePolling(data);
     } catch (err) {
       console.error('업로드 실패:', err);
@@ -325,6 +361,7 @@ export function Dashboard() {
             onSelectJob={setSelectedJobId}
             onRenameVideo={handleRenameVideo}
             onDeleteRecord={handleDeleteRecord}
+            onSearchChange={setSearchKeyword}
           />
         )}
 
