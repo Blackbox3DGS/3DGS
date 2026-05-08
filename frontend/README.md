@@ -1,27 +1,11 @@
-# Frontend
 
-## 개요
-`frontend`는 사고 장면을 확인하고 조작할 수 있는 **웹 뷰어**와 사용자 UI를 담당. 사용자는 회원가입 후 본인이 올린 영상을 다시 확인하고, 3D 결과를 웹에서 회전/확대/축소하며 볼 수 있음.
+  # 3D 사고 복원 시스템 2 (복사)
 
-## 예정 기능 (간단 버전)
-- 회원가입/로그인
-- 영상 업로드 및 개인 기록 조회
-- 3DGS 웹 뷰어 (자유 시점 조작)
-- 차량 3D 궤적 오버레이 및 사고 지점 마킹
+  This is a code bundle for 3D 사고 복원 시스템 2 (복사). The original project is available at https://www.figma.com/design/NIrKpmCplfwiH3ZK3F7Biz/3D-%EC%82%AC%EA%B3%A0-%EB%B3%B5%EC%9B%90-%EC%8B%9C%EC%8A%A4%ED%85%9C-2--%EB%B3%B5%EC%82%AC-.
 
-## 폴더 구조
-```text
-/Users/kyu216/projects/3DGS/frontend
-├── src
-│   ├── components
-│   ├── pages
-│   ├── hooks
-│   ├── store
-│   └── styles
-├── public
-├── assets
-└── README.md
-```
+  ## Running the code
 
-## 상태
-프론트엔드는 초기 구조만 구성되어 있으며, UI/UX 및 뷰어 상세는 이후 확정 예정
+  Run `npm i` to install the dependencies.
+
+  Run `npm run dev` to start the development server.
+  
