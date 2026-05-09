@@ -51,4 +51,11 @@ public class JobController {
         jobService.saveTargetIds(jobId, request.getTargetIds(), user);
         return BaseResponse.onSuccess("타겟 설정 완료");
     }
+
+    // [추가] 분석 기록 삭제 (본인 소유만 가능)
+    @DeleteMapping("/{jobId}")
+    public BaseResponse<String> deleteJob(@CurrentUser User user, @PathVariable String jobId) {
+        jobService.deleteJob(jobId, user);
+        return BaseResponse.onSuccess("삭제 완료");
+    }
 }
