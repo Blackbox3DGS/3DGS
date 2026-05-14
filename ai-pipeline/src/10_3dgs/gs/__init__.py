@@ -5,6 +5,7 @@ exclusion to suppress floaters on dynamic objects (vehicles, pedestrians).
 """
 
 import logging
+import os
 import subprocess
 import sys
 import traceback
@@ -18,6 +19,20 @@ from common.viz import render_pointcloud_topdown
 from .data_prep import prepare_scene_dir
 
 logger = logging.getLogger(__name__)
+
+
+# ── Training hyperparameters (override via env vars) ──────────────────
+# Defaults tuned for accident-scene reconstruction: longer training, mild
+# resolution downsample for memory headroom, denser densification to recover
+# fine details, slightly stronger SSIM weight to sharpen structure.
+ITERATIONS = int(os.getenv("GS_ITERATIONS", "50000"))
+SAVE_ITERATIONS = [
+    int(x) for x in os.getenv("GS_SAVE_ITERATIONS", "7000,30000,50000").split(",")
+]
+RESOLUTION = int(os.getenv("GS_RESOLUTION", "2"))
+LAMBDA_DSSIM = float(os.getenv("GS_LAMBDA_DSSIM", "0.25"))
+DENSIFY_GRAD_THRESH = float(os.getenv("GS_DENSIFY_GRAD", "0.0001"))
+DENSIFY_UNTIL = int(os.getenv("GS_DENSIFY_UNTIL", "25000"))
 
 
 def run(context):
@@ -66,9 +81,6 @@ def _run_impl(context):
     model_dir.mkdir(parents=True, exist_ok=True)
 
     # ── 2. Run 3DGS training ──────────────────────────────────────────
-    ITERATIONS = 30_000
-    SAVE_ITERATIONS = [7_000, 30_000]
-
     train_script = Path(__file__).parent / "train_masked.py"
 
     cmd = [
@@ -78,10 +90,18 @@ def _run_impl(context):
         "--mask_path", str(scene_dir / "masks"),
         "--iterations", str(ITERATIONS),
         "--save_iterations", *[str(i) for i in SAVE_ITERATIONS],
+        "--resolution", str(RESOLUTION),
+        "--lambda_dssim", str(LAMBDA_DSSIM),
+        "--densify_grad_threshold", str(DENSIFY_GRAD_THRESH),
+        "--densify_until_iter", str(DENSIFY_UNTIL),
         "--data_device", "cuda",
     ]
 
-    logger.info("Stage 10: Starting 3DGS training (%d iterations)...", ITERATIONS)
+    logger.info(
+        "Stage 10: Starting 3DGS training (iters=%d, -r %d, lambda_dssim=%.3f, "
+        "densify_grad=%.5f, densify_until=%d)...",
+        ITERATIONS, RESOLUTION, LAMBDA_DSSIM, DENSIFY_GRAD_THRESH, DENSIFY_UNTIL,
+    )
     logger.info("  cmd: %s", " ".join(cmd))
 
     result = subprocess.run(cmd, check=True)
