@@ -106,14 +106,20 @@ def _setup_logging(out_root: Path) -> None:
     root_logger.addHandler(file_handler)
 
 
+# Stage 10 final iteration must match GS_ITERATIONS in 10_3dgs/gs/__init__.py
+# so resume-from-disk picks up the correct point_cloud.ply.
+_GS_ITERATIONS = int(os.getenv("GS_ITERATIONS", "50000"))
+
 # Known artifact paths relative to out_root.
 # Used to restore context when resuming from a previous run.
 _ARTIFACT_PATHS = {
     "images_colmap":       "02_ingest/images_colmap",
     "ingest_vis":          "02_ingest/sample_grid.png",
     "segmentation_masks":  "03_seg/masks",
+    "sky_masks":           "03_seg/sky_masks",
     "bbox_sequence":       "03_seg/bbox_sequence.json",
     "seg_overlay_sample":  "03_seg/seg_overlay_sample.png",
+    "final_mask_sample":   "03_seg/final_mask_sample.png",
     "poses":               "04_colmap/poses.npy",
     "intrinsics":          "04_colmap/intrinsics.json",
     "sparse_ply":          "04_colmap/sparse.ply",
@@ -131,7 +137,7 @@ _ARTIFACT_PATHS = {
     "filtered_topdown":    "08_filtering/filtered_topdown.png",
     "trajectories":        "09_trajectory/trajectories.json",
     "trajectories_vis":    "09_trajectory/trajectories_topdown.png",
-    "output_ply":          "10_3dgs/model/point_cloud/iteration_30000/point_cloud.ply",
+    "output_ply":          f"10_3dgs/model/point_cloud/iteration_{_GS_ITERATIONS}/point_cloud.ply",
     "gs_model_dir":        "10_3dgs/model",
     "output_topdown":      "10_3dgs/output_topdown.png",
     "output_splat":        "11_format/output.splat",
