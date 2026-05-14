@@ -39,7 +39,8 @@ def run(context):
     images_dir = Path(context["artifacts"]["images_colmap"])
     out_root = Path(context["out_root"])
     seg_dir = out_root / "03_seg"
-    masks_dir = seg_dir / "masks"
+    masks_dir = seg_dir / "masks"               # full mask (dynamic + sky + dilation) — used by Stage 10 3DGS
+    masks_colmap_dir = seg_dir / "masks_colmap" # dynamic-only — used by Stage 04 COLMAP
     sky_dir = seg_dir / "sky_masks"
 
     # Collect and sort input frames
@@ -65,9 +66,25 @@ def run(context):
     logger.info("Step 4/5: Semantic sky segmentation (SegFormer)...")
     sky_masks = run_semantic_masks(frame_paths, sky_dir)
 
-    # 5. Write outputs (dynamic ∪ sky, dilated)
+    # 5. Write outputs — two mask variants:
+    #    masks_colmap/: dynamic-only, small dilation — for Stage 04 COLMAP SfM
+    #      (sky/far-bg has very few SIFT features but masking them out too aggressively
+    #       collapses COLMAP registration; keep COLMAP mask conservative.)
+    #    masks/: dynamic + sky + full dilation — for Stage 10 3DGS loss exclusion
     dilate_kernel = int(os.getenv("MASK_DILATE_KERNEL", "5"))
-    logger.info("Step 5/5: Writing masks (dilate=%d) and bbox sequence...", dilate_kernel)
+    colmap_dilate = int(os.getenv("MASK_COLMAP_DILATE_KERNEL", "3"))
+    logger.info(
+        "Step 5/5: Writing masks (colmap dilate=%d / 3dgs dilate=%d) and bbox sequence...",
+        colmap_dilate, dilate_kernel,
+    )
+    masks_colmap_path = write_masks(
+        frame_paths,
+        all_detections,
+        track_states,
+        masks_colmap_dir,
+        sky_masks=None,
+        dilate_kernel=colmap_dilate,
+    )
     masks_path = write_masks(
         frame_paths,
         all_detections,
@@ -88,6 +105,7 @@ def run(context):
 
     # Set artifacts
     context["artifacts"]["segmentation_masks"] = masks_path
+    context["artifacts"]["segmentation_masks_colmap"] = masks_colmap_path
     context["artifacts"]["sky_masks"] = str(sky_dir)
     context["artifacts"]["bbox_sequence"] = bbox_path
     context["artifacts"]["target_ids"] = "all_dynamic"
@@ -95,7 +113,7 @@ def run(context):
     context["artifacts"]["final_mask_sample"] = str(final_mask_path)
 
     logger.info(
-        "Stage 03 complete: masks -> %s, bbox -> %s, overlay -> %s, final -> %s",
-        masks_path, bbox_path, overlay_path, final_mask_path,
+        "Stage 03 complete: masks(3dgs) -> %s, masks(colmap) -> %s, bbox -> %s",
+        masks_path, masks_colmap_path, bbox_path,
     )
     return context

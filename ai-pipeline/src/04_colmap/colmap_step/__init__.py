@@ -71,7 +71,12 @@ def run(context):
         context["artifacts"]["colmap_model_dir"] — path to sparse/0/
     """
     images_dir = Path(context["artifacts"]["images_colmap"])
-    masks_dir = Path(context["artifacts"]["segmentation_masks"])
+    # Prefer dynamic-only mask for COLMAP — masking sky/far-bg too aggressively
+    # collapses SIFT feature matching. Falls back to legacy single-mask layout.
+    masks_dir = Path(
+        context["artifacts"].get("segmentation_masks_colmap")
+        or context["artifacts"]["segmentation_masks"]
+    )
     out_root = Path(context["out_root"])
     workspace = out_root / "04_colmap"
     workspace.mkdir(parents=True, exist_ok=True)

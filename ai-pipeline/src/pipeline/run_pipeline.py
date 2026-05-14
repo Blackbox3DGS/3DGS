@@ -115,8 +115,9 @@ _GS_ITERATIONS = int(os.getenv("GS_ITERATIONS", "50000"))
 _ARTIFACT_PATHS = {
     "images_colmap":       "02_ingest/images_colmap",
     "ingest_vis":          "02_ingest/sample_grid.png",
-    "segmentation_masks":  "03_seg/masks",
-    "sky_masks":           "03_seg/sky_masks",
+    "segmentation_masks":         "03_seg/masks",
+    "segmentation_masks_colmap":  "03_seg/masks_colmap",
+    "sky_masks":                  "03_seg/sky_masks",
     "bbox_sequence":       "03_seg/bbox_sequence.json",
     "seg_overlay_sample":  "03_seg/seg_overlay_sample.png",
     "final_mask_sample":   "03_seg/final_mask_sample.png",
