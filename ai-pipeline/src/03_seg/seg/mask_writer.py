@@ -10,16 +10,33 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def write_masks(frame_paths, all_frame_detections, track_states, out_dir):
-    """Write per-frame binary masks as PNG files.
+def write_masks(
+    frame_paths,
+    all_frame_detections,
+    track_states,
+    out_dir,
+    sky_masks: dict | None = None,
+    dilate_kernel: int = 5,
+):
+    """Write per-frame binary masks as PNG files (white = exclude from 3DGS).
 
     For each frame, creates a black image and paints dynamic-track masks white.
     Untracked detections (track_id == -1) are conservatively painted as dynamic.
+    If `sky_masks` is provided, those pixels are OR-combined into the mask. A
+    morphological dilation (`dilate_kernel`x`dilate_kernel` ellipse, set to 1 to
+    disable) is applied at the end to absorb boundary leakage that otherwise
+    leaves floater seams around dynamic objects.
 
     Returns str path to out_dir.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    kernel = (
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilate_kernel, dilate_kernel))
+        if dilate_kernel > 1
+        else None
+    )
 
     for fd in all_frame_detections:
         h, w = fd.height, fd.width
@@ -46,6 +63,16 @@ def write_masks(frame_paths, all_frame_detections, track_states, out_dir):
             # Paint cropped mask onto full image
             mask_region = det.mask_crop[:actual_h, :actual_w]
             mask_img[y1 : y1 + actual_h, x1 : x1 + actual_w][mask_region] = 255
+
+        # OR sky/static-background mask in
+        if sky_masks is not None:
+            sky = sky_masks.get(fd.frame_name)
+            if sky is not None and sky.shape == (h, w):
+                mask_img[sky] = 255
+
+        # Dilate to absorb boundary leakage of dynamic objects (and dust at sky edge)
+        if kernel is not None:
+            mask_img = cv2.dilate(mask_img, kernel, iterations=1)
 
         # Save with same stem as input frame
         stem = Path(fd.frame_name).stem

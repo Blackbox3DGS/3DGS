@@ -88,3 +88,45 @@ def write_seg_overlay_sample(
     if not images:
         return ""
     return render_frame_grid(images, out_path, cols=3, labels=labels)
+
+
+def write_final_mask_sample(
+    frame_paths: list[Path],
+    masks_dir: Path,
+    out_path: Path,
+    *,
+    n_samples: int = 9,
+    alpha: float = 0.45,
+) -> str:
+    """Render a 3x3 contact sheet showing the final exclusion mask (dynamic+sky+dilation).
+
+    For each sampled frame, overlays the mask in red (alpha-blended) on the original
+    image. Used to visually verify Stage 03 output before Stage 10 training.
+    """
+    if not frame_paths:
+        return ""
+    masks_dir = Path(masks_dir)
+    picks = sample_evenly(list(frame_paths), n_samples)
+    images: list[np.ndarray] = []
+    labels: list[str] = []
+    for fp in picks:
+        img = cv2.imread(str(fp))
+        if img is None:
+            continue
+        mask_path = masks_dir / f"{fp.stem}.png"
+        mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE) if mask_path.exists() else None
+        if mask is None or mask.shape[:2] != img.shape[:2]:
+            images.append(img)
+            labels.append(f"{fp.stem}  (no mask)")
+            continue
+        red_layer = np.zeros_like(img)
+        red_layer[..., 2] = 255  # BGR red
+        m_bool = mask > 127
+        blended = img.copy()
+        blended[m_bool] = cv2.addWeighted(img, 1 - alpha, red_layer, alpha, 0)[m_bool]
+        images.append(blended)
+        coverage = 100.0 * m_bool.mean()
+        labels.append(f"{fp.stem}  excl={coverage:.1f}%")
+    if not images:
+        return ""
+    return render_frame_grid(images, out_path, cols=3, labels=labels)
