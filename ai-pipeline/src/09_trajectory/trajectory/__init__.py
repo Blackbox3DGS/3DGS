@@ -2,9 +2,12 @@
 
 For every dynamic track in bbox_sequence.json, sample a robust depth from the
 lower 40% of the per-frame mask (rear bumper region, P20–P30 depth percentile)
-and unproject (u, v, depth) into world space. Output: trajectories.json.
+and unproject (u, v, depth) into world space. Per-track 3D positions are then
+filtered through a constant-velocity Kalman filter (AB3DMOT KF) with
+predict-only interpolation across short occlusion gaps. Output: trajectories.json.
 
-Coordinate frame matches Stage 04's c2w (`colmap_world`).
+Coordinate frame matches Stage 04's c2w (`colmap_world`). Velocity is reported
+in m/s assuming Stage 02's 10 fps extraction.
 """
 
 import json
@@ -22,21 +25,24 @@ from .extractor import (
     collect_other_bboxes,
     sample_track_frame,
 )
-from .smoothing import smooth_xyz_track
+from .tracker import Track3DKalman
 from .unproject import pixel_to_world
 from .visualizer import render_topdown
 from .writer import write_trajectories
 
 logger = logging.getLogger(__name__)
 
-# Hyperparameters (single source of truth, also recorded in metadata).
+# ROI / depth sampling (unchanged).
 LOWER_FRAC = 0.40
 PCT_LOW = 20.0
 PCT_HIGH = 30.0
 MIN_ROI_PIXELS = 20
 MIN_PCT_PIXELS = 5
-SMOOTH_WINDOW = 3
-SMOOTH_MAX_GAP = 2
+
+# Kalman filter / occlusion interpolation.
+MAX_PREDICT_GAP = 5         # consecutive predict-only frames before splitting
+KF_OBSERVATION_NOISE = 1.0  # scales AB3DMOT's measurement noise on (x, y, z)
+ASSUMED_FPS = 10            # Stage 02 default; used to convert KF vel (m/frame) → m/s
 
 
 def run(context):
@@ -70,6 +76,68 @@ def _resolve_target_ids(target_ids_artifact, bbox_sequence: dict) -> set[str]:
     if isinstance(target_ids_artifact, (list, tuple, set)):
         return {str(t) for t in target_ids_artifact}
     raise ValueError(f"Unsupported target_ids type: {type(target_ids_artifact)}")
+
+
+def _kf_track_points(
+    tid: str,
+    obs_by_frame: dict[int, dict],
+    sorted_filenames: list[str],
+) -> list[dict]:
+    """Run per-track KF + occlusion-gap predict over [first_obs ... last_obs].
+
+    Splits the track silently when consecutive predict-only ticks exceed
+    MAX_PREDICT_GAP — the next observation re-initialises a fresh KF and the
+    output `points` list simply has a real gap in `frame_idx`.
+    """
+    frame_indices = sorted(obs_by_frame.keys())
+    first_f, last_f = frame_indices[0], frame_indices[-1]
+
+    kf: Track3DKalman | None = None
+    points: list[dict] = []
+
+    for f in range(first_f, last_f + 1):
+        obs = obs_by_frame.get(f)
+
+        if kf is None:
+            if obs is None:
+                continue
+            kf = Track3DKalman(obs["xyz"], tid, observation_noise=KF_OBSERVATION_NOISE)
+            points.append(_make_point(f, kf, obs, interpolated=False))
+            continue
+
+        kf.predict()
+        if obs is not None:
+            kf.update(obs["xyz"])
+            points.append(_make_point(f, kf, obs, interpolated=False))
+        elif kf.frames_since_update <= MAX_PREDICT_GAP:
+            fname = sorted_filenames[f] if 0 <= f < len(sorted_filenames) else None
+            points.append(_make_point(f, kf, None, interpolated=True, frame_name=fname))
+        else:
+            kf = None
+
+    return points
+
+
+def _make_point(
+    frame_idx: int,
+    kf: Track3DKalman,
+    obs: dict | None,
+    *,
+    interpolated: bool,
+    frame_name: str | None = None,
+) -> dict:
+    x, y, z = kf.xyz()
+    vx, vy, vz = kf.velocity_per_frame()
+    fname = obs["frame_name"] if obs is not None else frame_name
+    depth = obs["depth_m"] if obs is not None else None
+    return {
+        "frame_idx": frame_idx,
+        "frame_name": fname,
+        "xyz": [x, y, z],
+        "velocity_mps": [vx * ASSUMED_FPS, vy * ASSUMED_FPS, vz * ASSUMED_FPS],
+        "depth_m": depth,
+        "interpolated": interpolated,
+    }
 
 
 def _run_impl(context):
@@ -134,12 +202,12 @@ def _run_impl(context):
     sorted_filenames, fname_to_pose_idx = build_frame_index(images_dir, reg_frames)
     work_by_frame = build_per_frame_track_bboxes(bbox_sequence, target_set)
 
-    # ── Step 3/4: Frame-major sampling loop ────────────────────────────
+    # ── Step 3/4: Frame-major sampling → per-track raw observations ────
     logger.info(
         "Step 3/4: Sampling depth percentiles per (track, frame) — %d frames have target tracks...",
         len(work_by_frame),
     )
-    raw_points: dict[str, list[dict]] = defaultdict(list)
+    raw_obs: dict[str, dict[int, dict]] = defaultdict(dict)
     skipped: Counter = Counter()
     processed_frames = 0
 
@@ -184,39 +252,43 @@ def _run_impl(context):
                 continue
             u, v, d = sample
             x, y, z = pixel_to_world(u, v, d, c2w, fx, fy, cx, cy)
-            raw_points[tid].append({
-                "frame_idx": frame_idx,
+            raw_obs[tid][frame_idx] = {
                 "frame_name": fname,
-                "xyz": [x, y, z],
+                "xyz": (x, y, z),
                 "depth_m": d,
-            })
+            }
 
         processed_frames += 1
         if processed_frames % 50 == 0:
             logger.info("  processed %d / %d frames", processed_frames, len(work_by_frame))
 
-    # ── Step 4/4: Smooth and serialise ─────────────────────────────────
-    logger.info("Step 4/4: Smoothing %d tracks and writing trajectories.json...",
-                len(raw_points))
+    # ── Step 4/4: Per-track KF tick + serialise ────────────────────────
+    logger.info(
+        "Step 4/4: Running Kalman filter (AB3DMOT KF) on %d tracks (max_predict_gap=%d)...",
+        len(raw_obs), MAX_PREDICT_GAP,
+    )
     tracks_out: dict = {}
-    for tid in sorted(raw_points.keys(), key=lambda s: int(s)):
-        pts = sorted(raw_points[tid], key=lambda p: p["frame_idx"])
-        if not pts:
+    interpolated_count = 0
+    for tid in sorted(raw_obs.keys(), key=lambda s: int(s)):
+        points = _kf_track_points(tid, raw_obs[tid], sorted_filenames)
+        if not points:
             continue
-        smoothed = smooth_xyz_track(pts, window=SMOOTH_WINDOW, max_gap=SMOOTH_MAX_GAP)
+        interpolated_count += sum(1 for p in points if p["interpolated"])
         tracks_out[tid] = {
             "class_name": bbox_sequence["tracks"][tid].get("class_name", "unknown"),
-            "points": smoothed,
+            "points": points,
         }
 
     params = {
+        "tracker": "AB3DMOT-KF",
         "lower_frac": LOWER_FRAC,
         "pct_low": PCT_LOW,
         "pct_high": PCT_HIGH,
         "min_roi_pixels": MIN_ROI_PIXELS,
         "min_pct_pixels": MIN_PCT_PIXELS,
-        "smooth_window": SMOOTH_WINDOW,
-        "smooth_max_gap": SMOOTH_MAX_GAP,
+        "max_predict_gap": MAX_PREDICT_GAP,
+        "kf_observation_noise": KF_OBSERVATION_NOISE,
+        "assumed_fps": ASSUMED_FPS,
     }
     write_trajectories(
         tracks_out,
@@ -236,7 +308,7 @@ def _run_impl(context):
 
     total_points = sum(len(t["points"]) for t in tracks_out.values())
     logger.info(
-        "Stage 09 complete: %d tracks, %d points, skipped=%s -> %s (vis: %s)",
-        len(tracks_out), total_points, dict(skipped), out_json, vis_path,
+        "Stage 09 complete: %d tracks, %d points (%d interpolated), skipped=%s -> %s (vis: %s)",
+        len(tracks_out), total_points, interpolated_count, dict(skipped), out_json, vis_path,
     )
     return context
