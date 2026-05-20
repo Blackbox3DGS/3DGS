@@ -50,6 +50,12 @@ RUN git clone --recursive https://github.com/graphdeco-inria/gaussian-splatting.
     pip3 install --no-cache-dir submodules/simple-knn && \
     pip3 install --no-cache-dir plyfile
 
+# AB3DMOT (Stage 09 Kalman tracker). Non-commercial research license.
+# .dockerignore excludes ai-pipeline/third_party/ so we clone it here.
+RUN git clone --depth 1 https://github.com/xinshuoweng/AB3DMOT.git \
+        /workspace/third_party/AB3DMOT
+ENV AB3DMOT_ROOT=/workspace/third_party/AB3DMOT
+
 # Copy project
 COPY . .
 
