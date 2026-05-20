@@ -23,3 +23,6 @@ transformers
 
 # Point cloud processing
 open3d
+
+# 3D trajectory Kalman filter (Stage 09 — used via third_party/AB3DMOT)
+filterpy>=1.4.5
