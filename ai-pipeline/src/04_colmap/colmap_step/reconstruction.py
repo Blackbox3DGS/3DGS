@@ -2,6 +2,7 @@
 
 import logging
 import shutil
+import struct
 import subprocess
 from pathlib import Path
 
@@ -69,6 +70,7 @@ def run_feature_extractor(db_path, image_path, mask_path, use_gpu=False, log_pat
         camera_model = "PINHOLE"
         params_str = None
 
+    # COLMAP 3.10+ removed --SiftExtraction.use_gpu; GPU is auto-detected.
     cmd = [
         "colmap", "feature_extractor",
         "--database_path", str(db_path),
@@ -76,44 +78,24 @@ def run_feature_extractor(db_path, image_path, mask_path, use_gpu=False, log_pat
         "--ImageReader.mask_path", str(mask_path),
         "--ImageReader.single_camera", "1",
         "--ImageReader.camera_model", camera_model,
-        "--SiftExtraction.use_gpu", "1" if use_gpu else "0",
         "--SiftExtraction.max_num_features", "8192",
     ]
     if params_str:
         cmd += ["--ImageReader.camera_params", params_str]
 
-    try:
-        _run_colmap_cmd(cmd, log_path)
-    except subprocess.CalledProcessError:
-        if use_gpu:
-            logger.warning("GPU feature extraction failed, retrying with CPU")
-            gpu_idx = cmd.index("--SiftExtraction.use_gpu")
-            cmd[gpu_idx + 1] = "0"
-            _run_colmap_cmd(cmd, log_path)
-        else:
-            raise
+    _run_colmap_cmd(cmd, log_path)
 
 
 def run_sequential_matcher(db_path, use_gpu=False, log_path=None):
     """Run colmap sequential_matcher."""
+    # COLMAP 3.10+ removed --SiftMatching.use_gpu; GPU is auto-detected.
     cmd = [
         "colmap", "sequential_matcher",
         "--database_path", str(db_path),
         "--SequentialMatching.overlap", "20",
         "--SequentialMatching.loop_detection", "0",
-        "--SiftMatching.use_gpu", "1" if use_gpu else "0",
     ]
-
-    try:
-        _run_colmap_cmd(cmd, log_path)
-    except subprocess.CalledProcessError:
-        if use_gpu:
-            logger.warning("GPU matching failed, retrying with CPU")
-            gpu_idx = cmd.index("--SiftMatching.use_gpu")
-            cmd[gpu_idx + 1] = "0"
-            _run_colmap_cmd(cmd, log_path)
-        else:
-            raise
+    _run_colmap_cmd(cmd, log_path)
 
 
 def run_mapper(db_path, image_path, output_path, log_path=None, fix_intrinsics=False):
@@ -184,7 +166,7 @@ def run_colmap_pipeline(images_dir, masks_dir, workspace, use_gpu=False, camera_
     logger.info("Step 3/5: Mapper (incremental SfM)...")
     run_mapper(db_path, images_dir, sparse_dir, log_path, fix_intrinsics=(camera_params is not None))
 
-    # Find the best reconstruction (sparse/0 is typically the largest)
+    # Find the best reconstruction: the one with the most registered images.
     recon_dirs = sorted(sparse_dir.iterdir()) if sparse_dir.exists() else []
     if not recon_dirs:
         raise RuntimeError(
@@ -192,12 +174,18 @@ def run_colmap_pipeline(images_dir, masks_dir, workspace, use_gpu=False, camera_
             "Check image quality, feature matches, and mask coverage."
         )
 
-    model_dir = recon_dirs[0]
+    def _count_images(d: Path) -> int:
+        images_bin = d / "images.bin"
+        if not images_bin.exists():
+            return 0
+        with open(images_bin, "rb") as f:
+            return struct.unpack("<Q", f.read(8))[0]
+
+    model_dir = max(recon_dirs, key=_count_images)
     if len(recon_dirs) > 1:
-        logger.warning(
-            "COLMAP produced %d reconstructions. Using %s (largest).",
-            len(recon_dirs),
-            model_dir,
+        logger.info(
+            "COLMAP produced %d reconstructions. Using %s (%d images, largest).",
+            len(recon_dirs), model_dir, _count_images(model_dir),
         )
 
     logger.info("Step 4/5: Converting model to text...")
