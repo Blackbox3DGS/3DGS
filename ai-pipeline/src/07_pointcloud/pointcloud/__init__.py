@@ -1,8 +1,8 @@
-"""Stage 07: Dense Point Cloud — backproject metric depth maps to 3D.
+"""Stage 07: Dense Point Cloud — backproject depth maps to 3D.
 
-Reads absolute-scale depth maps (metres) from Stage 06, original images for
-RGB colour, and camera poses/intrinsics from Stage 04 to produce a coloured
-dense point cloud saved as PLY.
+Reads relative depth maps (0-1) from Stage 05, calibrates per-frame metric
+scale against COLMAP sparse points, then backprojects to world space and
+saves a coloured dense PLY for 3DGS initialisation.
 """
 
 import json
@@ -21,11 +21,50 @@ from .backproject import backproject_frame
 logger = logging.getLogger(__name__)
 
 
+def _calibrate_scale(depth_map: np.ndarray, c2w: np.ndarray,
+                     sparse_pts: np.ndarray,
+                     fx: float, fy: float, cx: float, cy: float) -> float | None:
+    """Estimate metric scale factor: metric_depth = relative_depth * scale.
+
+    Projects COLMAP sparse 3D points into the camera frame, samples the
+    relative depth map at those pixel positions, and returns the median
+    of (colmap_depth / relative_depth) across all visible sparse points.
+    Returns None if fewer than 3 valid correspondences are found.
+    """
+    H, W = depth_map.shape
+    w2c = np.linalg.inv(c2w)
+    pts_h = np.concatenate([sparse_pts, np.ones((len(sparse_pts), 1))], axis=1)
+    pts_cam = (w2c @ pts_h.T).T[:, :3]
+
+    in_front = pts_cam[:, 2] > 0.5
+    pts_cam = pts_cam[in_front]
+    if len(pts_cam) == 0:
+        return None
+
+    u = (fx * pts_cam[:, 0] / pts_cam[:, 2] + cx).astype(int)
+    v = (fy * pts_cam[:, 1] / pts_cam[:, 2] + cy).astype(int)
+    colmap_z = pts_cam[:, 2]
+
+    in_bounds = (u >= 0) & (u < W) & (v >= 0) & (v < H)
+    u, v, colmap_z = u[in_bounds], v[in_bounds], colmap_z[in_bounds]
+    if len(u) == 0:
+        return None
+
+    rel_d = depth_map[v, u].astype(np.float64)
+    valid = (rel_d > 1e-4) & np.isfinite(rel_d)
+    if valid.sum() < 3:
+        return None
+
+    scales = colmap_z[valid] / rel_d[valid]
+    return float(np.median(scales))
+
+
 def run(context):
     """Stage 07 entry point.
 
     Reads:
-        context["artifacts"]["scaled_depth_maps"]  — dir of .npy (metres)
+        context["artifacts"]["depth_maps"]         — dir of .npy float32 [0,1]
+        context["artifacts"]["sparse_ply"]         — COLMAP sparse.ply for scale calibration
         context["artifacts"]["poses"]              — poses.npy (M, 4, 4) c2w
         context["artifacts"]["intrinsics"]         — intrinsics.json
         context["artifacts"]["registered_frames"]  — registered_frames.json
@@ -42,8 +81,8 @@ def run(context):
 
 
 def _run_impl(context):
-    # ── paths ──────────────────────────────────────────────────────────
-    depth_dir = Path(context["artifacts"]["scaled_depth_maps"])
+    depth_dir = Path(context["artifacts"]["depth_maps"])
+    sparse_ply_path = Path(context["artifacts"]["sparse_ply"])
     poses_path = Path(context["artifacts"]["poses"])
     intrinsics_path = Path(context["artifacts"]["intrinsics"])
     reg_path = Path(context["artifacts"]["registered_frames"])
@@ -54,7 +93,6 @@ def _run_impl(context):
     workspace.mkdir(parents=True, exist_ok=True)
     ply_path = workspace / "dense.ply"
 
-    # ── load metadata ──────────────────────────────────────────────────
     poses = np.load(poses_path)  # (M, 4, 4)
     with open(intrinsics_path) as f:
         intrinsics = json.load(f)
@@ -64,19 +102,23 @@ def _run_impl(context):
     fx, fy = intrinsics["fx"], intrinsics["fy"]
     cx, cy = intrinsics["cx"], intrinsics["cy"]
 
+    sparse_pcd = o3d.io.read_point_cloud(str(sparse_ply_path))
+    sparse_pts = np.asarray(sparse_pcd.points)
+    logger.info("Loaded %d sparse points for scale calibration", len(sparse_pts))
+
     logger.info(
         "Stage 07 starting: %d registered frames, depth from %s",
         len(reg_frames), depth_dir,
     )
 
-    # ── backproject each frame ─────────────────────────────────────────
-    STEP = 2          # pixel subsampling stride
-    MIN_DEPTH = 0.5   # metres
-    MAX_DEPTH = 150.0  # metres
+    STEP = 4           # pixel subsampling stride (4 = ~1/16 pixels)
+    MIN_DEPTH = 1.0    # metres
+    MAX_DEPTH = 80.0   # metres
 
     all_points = []
     all_colors = []
     total_pts = 0
+    no_scale = 0
 
     for idx, fname in enumerate(reg_frames):
         stem = Path(fname).stem
@@ -84,9 +126,14 @@ def _run_impl(context):
         if not npy_path.exists():
             continue
 
-        depth_map = np.load(npy_path)
+        depth_rel = np.load(npy_path)  # float32 [0, 1]
 
-        # Load original image for RGB
+        scale = _calibrate_scale(depth_rel, poses[idx], sparse_pts, fx, fy, cx, cy)
+        if scale is None or scale <= 0:
+            no_scale += 1
+            continue
+        depth_metric = depth_rel * scale
+
         img_path = images_dir / fname
         image = None
         if img_path.exists():
@@ -95,7 +142,7 @@ def _run_impl(context):
                 image = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
         pts, colors = backproject_frame(
-            depth_map, poses[idx],
+            depth_metric, poses[idx],
             fx, fy, cx, cy,
             image=image, step=STEP,
             min_depth=MIN_DEPTH, max_depth=MAX_DEPTH,
@@ -112,9 +159,15 @@ def _run_impl(context):
                         idx + 1, len(reg_frames), total_pts)
 
     if not all_points:
-        raise RuntimeError("No points generated — check depth maps and poses.")
+        raise RuntimeError(
+            "No points generated — check depth maps and sparse PLY. "
+            f"Frames with no scale: {no_scale}/{len(reg_frames)}"
+        )
 
-    # ── merge and save ─────────────────────────────────────────────────
+    if no_scale > 0:
+        logger.warning("%d / %d frames had no scale calibration and were skipped",
+                       no_scale, len(reg_frames))
+
     logger.info("Merging %d points from %d frames...", total_pts, len(all_points))
     points = np.concatenate(all_points)
 
@@ -125,8 +178,7 @@ def _run_impl(context):
         colors_arr = np.concatenate(all_colors)
         pcd.colors = o3d.utility.Vector3dVector(colors_arr.astype(np.float64) / 255.0)
 
-    # ── voxel downsampling ─────────────────────────────────────────────
-    VOXEL_SIZE = 0.1  # metres — spatially uniform downsampling
+    VOXEL_SIZE = 0.40  # metres
     logger.info("Voxel downsampling: voxel_size=%.3f m  (%d points before)", VOXEL_SIZE, total_pts)
     pcd = pcd.voxel_down_sample(voxel_size=VOXEL_SIZE)
     final_pts = len(pcd.points)
@@ -136,7 +188,6 @@ def _run_impl(context):
     o3d.io.write_point_cloud(str(ply_path), pcd)
     logger.info("Stage 07 complete: %d points -> %s", final_pts, ply_path)
 
-    # ── visualisation: top-down dense PC + camera path ─────────────────
     vis_path = workspace / "dense_topdown.png"
     try:
         pts_np = np.asarray(pcd.points)
@@ -144,12 +195,11 @@ def _run_impl(context):
         render_pointcloud_topdown(
             pts_np, poses[:, :3, 3], vis_path,
             colors=cols_np,
-            title="Stage 07 dense PC + camera path",
+            title=f"Stage 07 dense PC + camera path ({final_pts} pts)",
         )
         context["artifacts"]["dense_topdown"] = str(vis_path)
     except Exception as e:
         logger.warning("Stage 07 viz failed: %s", e)
 
-    # ── artifacts ──────────────────────────────────────────────────────
     context["artifacts"]["dense_pointcloud"] = str(ply_path)
     return context
