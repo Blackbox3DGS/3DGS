@@ -15,12 +15,8 @@ DEFAULT_STEPS = [
     "03_seg",
     "04_colmap",
     "05_depth",
-    "06_scale",
-    # 07 (background dense PC) and 09 (trajectory) both depend only on
-    # Stage 06 output and run in parallel — see PARALLEL_GROUPS below.
     "07_pointcloud",
     "09_trajectory",
-    "08_filtering",
     "10_3dgs",
     "11_format",
     "12_viewer",
@@ -112,6 +108,8 @@ _ARTIFACT_PATHS = {
     "images_colmap":       "02_ingest/images_colmap",
     "ingest_vis":          "02_ingest/sample_grid.png",
     "segmentation_masks":  "03_seg/masks",
+    "sky_masks":           "03_seg/sky_masks",
+    "combined_masks":      "03_seg/combined_masks",
     "bbox_sequence":       "03_seg/bbox_sequence.json",
     "seg_overlay_sample":  "03_seg/seg_overlay_sample.png",
     "poses":               "04_colmap/poses.npy",
@@ -119,33 +117,65 @@ _ARTIFACT_PATHS = {
     "sparse_ply":          "04_colmap/sparse.ply",
     "registered_frames":   "04_colmap/registered_frames.json",
     "images_3dgs":         "04_colmap/images_3dgs",
-    "colmap_model_dir":    "04_colmap/sparse/0",
+    # colmap_model_dir is resolved dynamically in _restore_artifacts
     "sparse_topdown":      "04_colmap/sparse_topdown.png",
     "depth_maps":          "05_depth/depth_maps",
     "depth_vis":           "05_depth/depth_vis",
-    "scaled_depth_maps":   "06_scale/scaled_depth_maps",
-    "scaled_depth_vis":    "06_scale/scaled_depth_vis",
     "dense_pointcloud":    "07_pointcloud/dense.ply",
     "dense_topdown":       "07_pointcloud/dense_topdown.png",
-    "filtered_pointcloud": "08_filtering/filtered.ply",
-    "filtered_topdown":    "08_filtering/filtered_topdown.png",
     "trajectories":        "09_trajectory/trajectories.json",
     "trajectories_vis":    "09_trajectory/trajectories_topdown.png",
-    "output_ply":          "10_3dgs/model/point_cloud/iteration_30000/point_cloud.ply",
+    "output_ply":          "10_3dgs/model/point_cloud/iteration_50000/point_cloud.ply",
     "gs_model_dir":        "10_3dgs/model",
     "output_topdown":      "10_3dgs/output_topdown.png",
     "output_splat":        "11_format/output.splat",
 }
 
 
+def _best_colmap_model_dir(sparse_root: Path) -> Path | None:
+    """Return the sparse reconstruction dir with the most registered images."""
+    import struct as _struct
+    best_dir, best_n = None, 0
+    if not sparse_root.is_dir():
+        return None
+    for d in sorted(sparse_root.iterdir()):
+        ib = d / "images.bin"
+        if not ib.exists():
+            continue
+        try:
+            with open(ib, "rb") as f:
+                n = _struct.unpack("<Q", f.read(8))[0]
+        except Exception:
+            continue
+        if n > best_n:
+            best_n, best_dir = n, d
+    return best_dir
+
+
 def _restore_artifacts(out_root: Path, context: dict) -> None:
     """Scan *out_root* for outputs from previous stages and populate context."""
+    import json as _json
     restored = []
     for key, rel_path in _ARTIFACT_PATHS.items():
         full = out_root / rel_path
         if full.exists():
             context["artifacts"][key] = str(full)
             restored.append(key)
+
+    # Dynamically pick the best COLMAP reconstruction (most registered images)
+    if "colmap_model_dir" not in context["artifacts"]:
+        best = _best_colmap_model_dir(out_root / "04_colmap" / "sparse")
+        if best is not None:
+            context["artifacts"]["colmap_model_dir"] = str(best)
+            restored.append("colmap_model_dir")
+
+    # waymo_intrinsics is a dict artifact saved as JSON by 02_ingest
+    waymo_json = out_root / "02_ingest" / "intrinsics_waymo.json"
+    if waymo_json.exists() and "waymo_intrinsics" not in context["artifacts"]:
+        with open(waymo_json) as f:
+            context["artifacts"]["waymo_intrinsics"] = _json.load(f)
+        restored.append("waymo_intrinsics")
+
     if restored:
         logger.info("Restored %d artifact(s) from %s: %s", len(restored), out_root, restored)
 
@@ -219,9 +249,6 @@ def main() -> None:
     # in the step list.  Their artifact dicts are merged after completion.
     PARALLEL_GROUPS = [
         {"04_colmap", "05_depth"},
-        # Track A (background) Stage 07 vs Track B (trajectory) Stage 09.
-        # Both consume only Stage 06 outputs; safe to run concurrently.
-        {"07_pointcloud", "09_trajectory"},
     ]
 
     idx = 0
