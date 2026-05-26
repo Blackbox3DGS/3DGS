@@ -41,11 +41,14 @@ def estimate_depth(
     with torch.no_grad():
         outputs = model(**inputs)
 
-    post = processor.post_process_depth_estimation(
-        outputs,
-        target_sizes=[(image.height, image.width)],
-    )
-    depth = post[0]["predicted_depth"]  # (H, W) tensor
+    # outputs.predicted_depth: (1, H', W') — upsample to original resolution.
+    # Avoids post_process_depth_estimation which was removed in transformers 4.x.
+    depth = torch.nn.functional.interpolate(
+        outputs.predicted_depth.unsqueeze(1),
+        size=(image.height, image.width),
+        mode="bilinear",
+        align_corners=False,
+    ).squeeze()  # (H, W)
 
     # Normalise to [0, 1]
     d_min = depth.min()
