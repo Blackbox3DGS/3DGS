@@ -25,9 +25,9 @@ def run(context):
 
     Reads:
         context["artifacts"]["images_3dgs"]          — subsampled registered frames
-        context["artifacts"]["segmentation_masks"]    — binary masks (white=dynamic)
+        context["artifacts"]["combined_masks"]        — combined (dynamic | sky) binary masks
         context["artifacts"]["colmap_model_dir"]      — sparse/0/ (cameras.bin, images.bin)
-        context["artifacts"]["filtered_pointcloud"]   — filtered.ply (initial PC)
+        context["artifacts"]["sparse_ply"]            — COLMAP sparse.ply (initial PC)
 
     Writes:
         context["artifacts"]["output_ply"]            — trained 3DGS point_cloud.ply
@@ -42,9 +42,12 @@ def run(context):
 
 def _run_impl(context):
     images_dir = Path(context["artifacts"]["images_3dgs"])
-    masks_dir = Path(context["artifacts"]["segmentation_masks"])
+    masks_dir = Path(context["artifacts"]["combined_masks"])
     colmap_model_dir = Path(context["artifacts"]["colmap_model_dir"])
-    filtered_ply = Path(context["artifacts"]["filtered_pointcloud"])
+    # Prefer dense pointcloud from Stage 07; fall back to sparse PLY
+    init_ply_key = "dense_pointcloud" if "dense_pointcloud" in context["artifacts"] else "sparse_ply"
+    sparse_ply = Path(context["artifacts"][init_ply_key])
+    logger.info("Stage 10: using %s for 3DGS initialisation (%s)", init_ply_key, sparse_ply)
 
     out_root = Path(context["out_root"])
     workspace = out_root / "10_3dgs"
@@ -60,14 +63,14 @@ def _run_impl(context):
         images_dir=images_dir,
         masks_dir=masks_dir,
         colmap_model_dir=colmap_model_dir,
-        filtered_ply=filtered_ply,
+        sparse_ply=sparse_ply,
     )
 
     model_dir.mkdir(parents=True, exist_ok=True)
 
     # ── 2. Run 3DGS training ──────────────────────────────────────────
-    ITERATIONS = 30_000
-    SAVE_ITERATIONS = [7_000, 30_000]
+    ITERATIONS = 50_000
+    SAVE_ITERATIONS = [7_000, 30_000, 50_000]
 
     train_script = Path(__file__).parent / "train_masked.py"
 
@@ -78,6 +81,8 @@ def _run_impl(context):
         "--mask_path", str(scene_dir / "masks"),
         "--iterations", str(ITERATIONS),
         "--save_iterations", *[str(i) for i in SAVE_ITERATIONS],
+        "--densify_until_iter", "40000",
+        "--densification_interval", "50",
         "--data_device", "cuda",
     ]
 

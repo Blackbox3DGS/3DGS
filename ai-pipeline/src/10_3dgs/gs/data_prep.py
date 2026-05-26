@@ -226,7 +226,7 @@ def prepare_scene_dir(
     images_dir: Path,
     masks_dir: Path,
     colmap_model_dir: Path,
-    filtered_ply: Path,
+    sparse_ply: Path,
 ) -> Path:
     """Create directory structure expected by gaussian-splatting.
 
@@ -238,7 +238,7 @@ def prepare_scene_dir(
         └── sparse/0/
             ├── cameras.bin  (PINHOLE, converted from OPENCV if needed)
             ├── images.bin   (filtered to match images_dir)
-            └── points3D.ply (our filtered dense PC)
+            └── points3D.ply (converted from COLMAP sparse.ply)
     """
     scene_dir.mkdir(parents=True, exist_ok=True)
 
@@ -282,12 +282,12 @@ def prepare_scene_dir(
         if src.exists():
             filterer(src, sparse_dir / name, keep_names)
 
-    # Convert filtered PC to gaussian-splatting compatible PLY format.
+    # Convert COLMAP sparse PC to gaussian-splatting compatible PLY format.
     # gaussian-splatting's fetchPly() expects: float x,y,z + uchar red,green,blue + float nx,ny,nz
-    # Our Open3D PLY has double x,y,z + uchar red,green,blue (no normals).
+    # COLMAP sparse.ply may use double coords without normals.
     dst_ply = sparse_dir / "points3D.ply"
-    _convert_ply_for_gs(filtered_ply, dst_ply)
-    logger.info("  points3D.ply <- %s (converted for gaussian-splatting)", filtered_ply)
+    _convert_ply_for_gs(sparse_ply, dst_ply)
+    logger.info("  points3D.ply <- %s (converted for gaussian-splatting)", sparse_ply)
 
     # Remove points3D.bin/.txt if present (force PLY loading)
     for ext in [".bin", ".txt"]:
