@@ -60,7 +60,7 @@ def run(context):
 
     Reads:
         context["artifacts"]["images_colmap"] — directory of .jpg frames
-        context["artifacts"]["segmentation_masks"] — directory of binary .png masks
+        context["artifacts"]["combined_masks"] — directory of combined (dynamic | sky) .png masks
 
     Writes:
         context["artifacts"]["poses"] — path to poses.npy (M, 4, 4)
@@ -71,7 +71,7 @@ def run(context):
         context["artifacts"]["colmap_model_dir"] — path to sparse/0/
     """
     images_dir = Path(context["artifacts"]["images_colmap"])
-    masks_dir = Path(context["artifacts"]["segmentation_masks"])
+    masks_dir = Path(context["artifacts"]["combined_masks"])
     out_root = Path(context["out_root"])
     workspace = out_root / "04_colmap"
     workspace.mkdir(parents=True, exist_ok=True)
