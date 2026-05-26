@@ -73,67 +73,29 @@ def sample_track_frame(
     min_roi_pixels: int = 20,
     min_pct_pixels: int = 5,
 ) -> tuple[float, float, float] | None:
-    """Sample a robust (u, v, depth) tuple from a single track's ROI.
+    """Sample (u, v, depth) at the bottom-center pixel of the bounding box.
 
-    ROI = bbox ∩ (mask == 255) ∩ lower `lower_frac` of bbox
-          ∩ NOT(any other_bbox).
-
-    Returns None when the ROI or [P_low, P_high] subset is too small.
+    u = horizontal midpoint of bbox, v = bottom edge of bbox (ground contact).
+    depth is read directly from depth_map at that pixel.
+    Returns None if the pixel is out of bounds or depth is invalid.
     """
     H, W = depth_map.shape[:2]
 
     x1, y1, x2, y2 = bbox
-    x1 = max(0, min(W, int(x1)))
-    y1 = max(0, min(H, int(y1)))
-    x2 = max(0, min(W, int(x2)))
-    y2 = max(0, min(H, int(y2)))
-    if x2 <= x1 or y2 <= y1:
+    x1 = max(0, min(W - 1, int(x1)))
+    x2 = max(0, min(W - 1, int(x2)))
+    y2 = max(0, min(H - 1, int(y2)))
+    if x2 <= x1:
         return None
 
-    bh = y2 - y1
-    y_lower = y1 + int(round((1.0 - lower_frac) * bh))
-    if y_lower >= y2:
+    u = (x1 + x2) / 2.0
+    v = float(y2)
+
+    depth = float(depth_map[int(round(v)), int(round(u))])
+    if not np.isfinite(depth) or depth <= 0:
         return None
 
-    mask_crop = mask_img[y_lower:y2, x1:x2] == 255
-    if not mask_crop.any():
-        return None
-
-    if other_bboxes:
-        excl = np.zeros_like(mask_crop, dtype=bool)
-        for ob in other_bboxes:
-            ox1, oy1, ox2, oy2 = ob
-            ox1 = max(x1, min(x2, int(ox1)))
-            oy1 = max(y_lower, min(y2, int(oy1)))
-            ox2 = max(x1, min(x2, int(ox2)))
-            oy2 = max(y_lower, min(y2, int(oy2)))
-            if ox2 > ox1 and oy2 > oy1:
-                excl[oy1 - y_lower : oy2 - y_lower, ox1 - x1 : ox2 - x1] = True
-        mask_crop &= ~excl
-
-    if int(mask_crop.sum()) < min_roi_pixels:
-        return None
-
-    depth_crop = depth_map[y_lower:y2, x1:x2]
-    vs_local, us_local = np.nonzero(mask_crop)
-    depths = depth_crop[vs_local, us_local]
-
-    finite = np.isfinite(depths) & (depths > 0)
-    if int(finite.sum()) < min_roi_pixels:
-        return None
-    vs_local = vs_local[finite]
-    us_local = us_local[finite]
-    depths = depths[finite]
-
-    p_lo, p_hi = np.percentile(depths, [pct_low, pct_high])
-    keep = (depths >= p_lo) & (depths <= p_hi)
-    if int(keep.sum()) < min_pct_pixels:
-        return None
-
-    u_med = float(np.median(us_local[keep])) + x1
-    v_med = float(np.median(vs_local[keep])) + y_lower
-    d_med = float(np.median(depths[keep]))
-    return u_med, v_med, d_med
+    return u, v, depth
 
 
 def collect_other_bboxes(

@@ -1,10 +1,10 @@
 """Stage 09: 3D Vehicle Trajectory Extraction.
 
-For every dynamic track in bbox_sequence.json, sample a robust depth from the
-lower 40% of the per-frame mask (rear bumper region, P20–P30 depth percentile)
-and unproject (u, v, depth) into world space. Per-track 3D positions are then
-filtered through a constant-velocity Kalman filter (AB3DMOT KF) with
-predict-only interpolation across short occlusion gaps. Output: trajectories.json.
+For every dynamic track in bbox_sequence.json, sample depth at the bottom-center
+pixel of each per-frame bounding box (ground-contact point) and unproject
+(u, v, depth) into world space. Per-track 3D positions are filtered through a
+constant-velocity Kalman filter (AB3DMOT KF) with predict-only interpolation
+across short occlusion gaps. Output: trajectories.json.
 
 Coordinate frame matches Stage 04's c2w (`colmap_world`). Velocity is reported
 in m/s assuming Stage 02's 10 fps extraction.
@@ -16,13 +16,11 @@ import traceback
 from collections import Counter, defaultdict
 from pathlib import Path
 
-import cv2
 import numpy as np
 
 from .extractor import (
     build_frame_index,
     build_per_frame_track_bboxes,
-    collect_other_bboxes,
     sample_track_frame,
 )
 from .tracker import Track3DKalman
@@ -31,13 +29,6 @@ from .visualizer import render_topdown
 from .writer import write_trajectories
 
 logger = logging.getLogger(__name__)
-
-# ROI / depth sampling (unchanged).
-LOWER_FRAC = 0.40
-PCT_LOW = 20.0
-PCT_HIGH = 30.0
-MIN_ROI_PIXELS = 20
-MIN_PCT_PIXELS = 5
 
 # Kalman filter / occlusion interpolation.
 MAX_PREDICT_GAP = 5         # consecutive predict-only frames before splitting
@@ -49,8 +40,8 @@ def run(context):
     """Stage 09 entry point.
 
     Reads (from context["artifacts"]):
-        bbox_sequence, segmentation_masks, target_ids,
-        images_colmap, scaled_depth_maps,
+        bbox_sequence, target_ids,
+        images_colmap, depth_maps,
         poses, intrinsics, registered_frames
 
     Writes:
@@ -146,9 +137,8 @@ def _run_impl(context):
     # ── paths ──────────────────────────────────────────────────────────
     required_keys = [
         "bbox_sequence",
-        "segmentation_masks",
         "images_colmap",
-        "scaled_depth_maps",
+        "depth_maps",
         "poses",
         "intrinsics",
         "registered_frames",
@@ -158,9 +148,8 @@ def _run_impl(context):
             raise FileNotFoundError(f"Stage 09 missing required artifact: {k}")
 
     bbox_path = Path(artifacts["bbox_sequence"])
-    mask_dir = Path(artifacts["segmentation_masks"])
     images_dir = Path(artifacts["images_colmap"])
-    depth_dir = Path(artifacts["scaled_depth_maps"])
+    depth_dir = Path(artifacts["depth_maps"])
     poses_path = Path(artifacts["poses"])
     intrinsics_path = Path(artifacts["intrinsics"])
     reg_path = Path(artifacts["registered_frames"])
@@ -168,7 +157,7 @@ def _run_impl(context):
     for p in (bbox_path, poses_path, intrinsics_path, reg_path):
         if not p.exists():
             raise FileNotFoundError(f"Stage 09 input file missing: {p}")
-    for d in (mask_dir, images_dir, depth_dir):
+    for d in (images_dir, depth_dir):
         if not d.is_dir():
             raise FileNotFoundError(f"Stage 09 input dir missing: {d}")
 
@@ -204,7 +193,7 @@ def _run_impl(context):
 
     # ── Step 3/4: Frame-major sampling → per-track raw observations ────
     logger.info(
-        "Step 3/4: Sampling depth percentiles per (track, frame) — %d frames have target tracks...",
+        "Step 3/4: Sampling bottom-center depth per (track, frame) — %d frames have target tracks...",
         len(work_by_frame),
     )
     raw_obs: dict[str, dict[int, dict]] = defaultdict(dict)
@@ -226,29 +215,16 @@ def _run_impl(context):
         c2w = poses[pose_idx]
 
         stem = Path(fname).stem
-        mask_path = mask_dir / f"{stem}.png"
         depth_path = depth_dir / f"{stem}.npy"
-        if not mask_path.exists() or not depth_path.exists():
-            skipped["mask_or_depth_missing"] += n_in_frame
-            continue
-        mask_img = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
-        if mask_img is None:
-            skipped["mask_or_depth_missing"] += n_in_frame
+        if not depth_path.exists():
+            skipped["depth_missing"] += n_in_frame
             continue
         depth_map = np.load(depth_path)
 
         for tid, bbox in frame_tracks:
-            others = collect_other_bboxes(frame_tracks, tid, bbox)
-            sample = sample_track_frame(
-                mask_img, depth_map, bbox, others,
-                lower_frac=LOWER_FRAC,
-                pct_low=PCT_LOW,
-                pct_high=PCT_HIGH,
-                min_roi_pixels=MIN_ROI_PIXELS,
-                min_pct_pixels=MIN_PCT_PIXELS,
-            )
+            sample = sample_track_frame(None, depth_map, bbox, [])
             if sample is None:
-                skipped["empty_or_low_roi"] += 1
+                skipped["invalid_depth"] += 1
                 continue
             u, v, d = sample
             x, y, z = pixel_to_world(u, v, d, c2w, fx, fy, cx, cy)
@@ -281,11 +257,7 @@ def _run_impl(context):
 
     params = {
         "tracker": "AB3DMOT-KF",
-        "lower_frac": LOWER_FRAC,
-        "pct_low": PCT_LOW,
-        "pct_high": PCT_HIGH,
-        "min_roi_pixels": MIN_ROI_PIXELS,
-        "min_pct_pixels": MIN_PCT_PIXELS,
+        "depth_sample": "bottom_center",
         "max_predict_gap": MAX_PREDICT_GAP,
         "kf_observation_noise": KF_OBSERVATION_NOISE,
         "assumed_fps": ASSUMED_FPS,
