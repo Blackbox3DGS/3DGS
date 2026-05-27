@@ -26,3 +26,12 @@ open3d
 
 # 3D trajectory Kalman filter (Stage 09 — used via third_party/AB3DMOT)
 filterpy>=1.4.5
+
+# Stage 04g (optional): LingBot-MAP feed-forward 3D reconstruction. Replaces
+# COLMAP + Depth Anything + scale alignment with a single transformer pass.
+# Not on PyPI — install editable from the sibling repo, then point
+# LINGBOT_MODEL_PATH at a HuggingFace repo id or a local checkpoint dir:
+#   pip install -e ../lingbot-map
+#   export LINGBOT_MODEL_PATH=<repo-id-or-path>
+# (lingbot-map's pyproject pins PyTorch 2.8 + CUDA 12.8; FlashInfer is optional
+# and falls back to SDPA. See lingbot-map/README.md.)

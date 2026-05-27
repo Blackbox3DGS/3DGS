@@ -26,11 +26,25 @@ DEFAULT_STEPS = [
     "12_viewer",
 ]
 
+# LingBot-MAP collapses Stage 04+05+06 into one feed-forward inference pass.
+LINGBOT_STEPS = [
+    "02_ingest",
+    "03_seg",
+    "04g_lingbot",
+    "07_pointcloud",
+    "09_trajectory",
+    "08_filtering",
+    "10_3dgs",
+    "11_format",
+    "12_viewer",
+]
+
 # dot-path relative to src/ for importlib
 STAGE_MODULES = {
     "02_ingest": "02_ingest.ingest",
     "03_seg": "03_seg.seg",
     "04_colmap": "04_colmap.colmap_step",
+    "04g_lingbot": "04g_lingbot.lingbot",
     "05_depth": "05_depth.depth",
     "06_scale": "06_scale.scale",
     "07_pointcloud": "07_pointcloud.pointcloud",
@@ -58,8 +72,16 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--steps",
-        default=",".join(DEFAULT_STEPS),
-        help="Comma-separated list of steps to run.",
+        default=None,
+        help="Comma-separated list of steps to run. "
+             "Default: DEFAULT_STEPS (or LINGBOT_STEPS if --use-lingbot).",
+    )
+    parser.add_argument(
+        "--use-lingbot",
+        action="store_true",
+        help="Swap Stage 04/05/06 (COLMAP + Depth Anything + scale align) for "
+             "04g_lingbot (LingBot-MAP feed-forward inference). Requires "
+             "lingbot-map installed and LINGBOT_MODEL_PATH set.",
     )
     parser.add_argument(
         "--dry_run",
@@ -106,46 +128,55 @@ def _setup_logging(out_root: Path) -> None:
     root_logger.addHandler(file_handler)
 
 
-# Known artifact paths relative to out_root.
-# Used to restore context when resuming from a previous run.
+# Known artifact paths relative to out_root.  Each key maps to a list of
+# candidate paths; _restore_artifacts() probes them in order so the same
+# artifact key (e.g. "poses") can resolve to either the COLMAP output
+# (04_colmap/poses.npy) or the LingBot output (04g_lingbot/poses.npy)
+# depending on which stage produced it.
 _ARTIFACT_PATHS = {
-    "images_colmap":       "02_ingest/images_colmap",
-    "ingest_vis":          "02_ingest/sample_grid.png",
-    "segmentation_masks":  "03_seg/masks",
-    "bbox_sequence":       "03_seg/bbox_sequence.json",
-    "seg_overlay_sample":  "03_seg/seg_overlay_sample.png",
-    "poses":               "04_colmap/poses.npy",
-    "intrinsics":          "04_colmap/intrinsics.json",
-    "sparse_ply":          "04_colmap/sparse.ply",
-    "registered_frames":   "04_colmap/registered_frames.json",
-    "images_3dgs":         "04_colmap/images_3dgs",
-    "colmap_model_dir":    "04_colmap/sparse/0",
-    "sparse_topdown":      "04_colmap/sparse_topdown.png",
-    "depth_maps":          "05_depth/depth_maps",
-    "depth_vis":           "05_depth/depth_vis",
-    "scaled_depth_maps":   "06_scale/scaled_depth_maps",
-    "scaled_depth_vis":    "06_scale/scaled_depth_vis",
-    "dense_pointcloud":    "07_pointcloud/dense.ply",
-    "dense_topdown":       "07_pointcloud/dense_topdown.png",
-    "filtered_pointcloud": "08_filtering/filtered.ply",
-    "filtered_topdown":    "08_filtering/filtered_topdown.png",
-    "trajectories":        "09_trajectory/trajectories.json",
-    "trajectories_vis":    "09_trajectory/trajectories_topdown.png",
-    "output_ply":          "10_3dgs/model/point_cloud/iteration_30000/point_cloud.ply",
-    "gs_model_dir":        "10_3dgs/model",
-    "output_topdown":      "10_3dgs/output_topdown.png",
-    "output_splat":        "11_format/output.splat",
+    "images_colmap":       ["02_ingest/images_colmap"],
+    "ingest_vis":          ["02_ingest/sample_grid.png"],
+    "segmentation_masks":  ["03_seg/masks"],
+    "bbox_sequence":       ["03_seg/bbox_sequence.json"],
+    "seg_overlay_sample":  ["03_seg/seg_overlay_sample.png"],
+    "poses":               ["04g_lingbot/poses.npy", "04_colmap/poses.npy"],
+    "intrinsics":          ["04g_lingbot/intrinsics.json", "04_colmap/intrinsics.json"],
+    "sparse_ply":          ["04g_lingbot/sparse.ply", "04_colmap/sparse.ply"],
+    "registered_frames":   ["04g_lingbot/registered_frames.json", "04_colmap/registered_frames.json"],
+    "images_3dgs":         ["04g_lingbot/images_3dgs", "04_colmap/images_3dgs"],
+    "colmap_model_dir":    ["04g_lingbot/sparse/0", "04_colmap/sparse/0"],
+    "sparse_topdown":      ["04_colmap/sparse_topdown.png"],
+    "depth_maps":          ["04g_lingbot/depth_maps", "05_depth/depth_maps"],
+    "depth_vis":           ["05_depth/depth_vis"],
+    "scaled_depth_maps":   ["04g_lingbot/scaled_depth_maps", "06_scale/scaled_depth_maps"],
+    "scaled_depth_vis":    ["04g_lingbot/scaled_depth_vis", "06_scale/scaled_depth_vis"],
+    "dense_pointcloud":    ["07_pointcloud/dense.ply"],
+    "dense_topdown":       ["07_pointcloud/dense_topdown.png"],
+    "filtered_pointcloud": ["08_filtering/filtered.ply"],
+    "filtered_topdown":    ["08_filtering/filtered_topdown.png"],
+    "trajectories":        ["09_trajectory/trajectories.json"],
+    "trajectories_vis":    ["09_trajectory/trajectories_topdown.png"],
+    "output_ply":          ["10_3dgs/model/point_cloud/iteration_30000/point_cloud.ply"],
+    "gs_model_dir":        ["10_3dgs/model"],
+    "output_topdown":      ["10_3dgs/output_topdown.png"],
+    "output_splat":        ["11_format/output.splat"],
 }
 
 
 def _restore_artifacts(out_root: Path, context: dict) -> None:
-    """Scan *out_root* for outputs from previous stages and populate context."""
+    """Scan *out_root* for outputs from previous stages and populate context.
+
+    Each artifact maps to a list of candidate paths; the first that exists wins.
+    This lets the same key resolve to either the COLMAP or LingBot output.
+    """
     restored = []
-    for key, rel_path in _ARTIFACT_PATHS.items():
-        full = out_root / rel_path
-        if full.exists():
-            context["artifacts"][key] = str(full)
-            restored.append(key)
+    for key, rel_paths in _ARTIFACT_PATHS.items():
+        for rel in rel_paths:
+            full = out_root / rel
+            if full.exists():
+                context["artifacts"][key] = str(full)
+                restored.append(key)
+                break
     if restored:
         logger.info("Restored %d artifact(s) from %s: %s", len(restored), out_root, restored)
 
@@ -184,7 +215,10 @@ def main() -> None:
         input_type = _detect_input_type(input_path)
 
     out_root = _resolve_out_root(args.out_root)
-    steps = [s.strip() for s in args.steps.split(",") if s.strip()]
+    if args.steps is not None:
+        steps = [s.strip() for s in args.steps.split(",") if s.strip()]
+    else:
+        steps = list(LINGBOT_STEPS if args.use_lingbot else DEFAULT_STEPS)
 
     os.makedirs(out_root, exist_ok=True)
     _setup_logging(out_root)
