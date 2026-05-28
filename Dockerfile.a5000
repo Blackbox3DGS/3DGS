@@ -46,14 +46,21 @@ RUN pip3 install --no-cache-dir \
     torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
     --index-url https://download.pytorch.org/whl/cu118
 
-# 3DGS python deps. --ignore-installed torch keeps our cu118 build from being
-# replaced by a CPU wheel pulled transitively.
+# 3DGS python deps.
+#
+# CRITICAL: requirements.txt lists torch/torchvision/torchaudio (unpinned) and
+# packages like ultralytics depend on torch. A plain `pip install` would pull
+# the PyPI-default torch (cu124) and clobber the cu118 build above — then the
+# CUDA extensions fail to compile (container CUDA 11.8 vs torch CUDA 12.4).
+# A constraints file pins the public version so the already-installed cu118
+# wheel stays satisfied and is never reinstalled from PyPI.
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir "numpy>=1.24,<2" && \
-    pip3 install --no-cache-dir \
-    --ignore-installed torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
-    -r requirements.txt && \
-    pip3 install --no-cache-dir --no-build-isolation waymo-open-dataset-tf-2-12-0
+RUN printf "torch==2.5.1\ntorchvision==0.20.1\ntorchaudio==2.5.1\n" > /build/constraints.txt && \
+    pip3 install --no-cache-dir -c /build/constraints.txt "numpy>=1.24,<2" && \
+    pip3 install --no-cache-dir -c /build/constraints.txt -r requirements.txt && \
+    pip3 install --no-cache-dir --no-build-isolation -c /build/constraints.txt \
+        waymo-open-dataset-tf-2-12-0 && \
+    python3 -c "import torch; assert torch.version.cuda=='11.8', torch.version.cuda; print('torch', torch.__version__)"
 
 # Gaussian Splatting CUDA extensions. Cloned to /opt so a runtime
 # `-v /data/byungk:/workspace` bind mount can't shadow it. Stage 10 honours
@@ -63,8 +70,8 @@ ENV GS_ROOT=/opt/gaussian-splatting
 RUN git clone --recursive https://github.com/graphdeco-inria/gaussian-splatting.git \
         /opt/gaussian-splatting && \
     cd /opt/gaussian-splatting && \
-    pip3 install --no-cache-dir submodules/diff-gaussian-rasterization && \
-    pip3 install --no-cache-dir submodules/simple-knn && \
+    pip3 install --no-cache-dir -c /build/constraints.txt submodules/diff-gaussian-rasterization && \
+    pip3 install --no-cache-dir -c /build/constraints.txt submodules/simple-knn && \
     pip3 install --no-cache-dir plyfile
 
 # AB3DMOT (Stage 09 Kalman tracker). Also in /opt to survive the mount.
@@ -75,8 +82,8 @@ ENV AB3DMOT_ROOT=/opt/AB3DMOT
 # editable install won't disturb our torch 2.5.1. Re-assert numpy/opencv pins
 # afterwards (the standalone setup needed opencv<4.13).
 RUN git clone https://github.com/Robbyant/lingbot-map.git /opt/lingbot-map && \
-    pip3 install --no-cache-dir -e /opt/lingbot-map && \
-    pip3 install --no-cache-dir "numpy>=1.24,<2" "opencv-python<4.13"
+    pip3 install --no-cache-dir -c /build/constraints.txt -e /opt/lingbot-map && \
+    pip3 install --no-cache-dir -c /build/constraints.txt "numpy>=1.24,<2" "opencv-python<4.13"
 
 # No COPY/ENTRYPOINT: the project code is bind-mounted at run time and executed
 # from /workspace/3DGS, so a `git pull` on the host is reflected immediately.
