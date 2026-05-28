@@ -234,4 +234,45 @@ def run_inference(
     del model, predictions
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+    # Some checkpoints (e.g. lingbot-map-long) predict depth + pose but have no
+    # world_points head. Derive world points by back-projecting depth through
+    # the per-frame intrinsics + camera-to-world poses — equivalent to what the
+    # point head would produce, and to Stage 07's dense backprojection.
+    if result["world_points"] is None and result["depth"] is not None:
+        logger.info("No world_points head in checkpoint — backprojecting from depth.")
+        result["world_points"] = _backproject_depth_to_world(
+            result["depth"], result["intrinsic"], result["extrinsic_c2w"],
+        )
+        # Use depth confidence as the point confidence; fall back to all-ones.
+        if result["world_points_conf"] is None:
+            if result["depth_conf"] is not None:
+                result["world_points_conf"] = result["depth_conf"]
+            else:
+                result["world_points_conf"] = np.ones_like(result["depth"])
+
     return result
+
+
+def _backproject_depth_to_world(
+    depth: np.ndarray,          # (S, H, W) metric depth
+    intrinsic: np.ndarray,      # (S, 3, 3) at processed resolution
+    extrinsic_c2w: np.ndarray,  # (S, 3, 4) camera-to-world
+) -> np.ndarray:
+    """Unproject per-pixel depth to world points. Returns (S, H, W, 3) float32.
+
+    Standard OpenCV pinhole: x=(u-cx)/fx*d, y=(v-cy)/fy*d, z=d, then world = R@cam+t.
+    """
+    S, H, W = depth.shape
+    vs, us = np.meshgrid(np.arange(H, dtype=np.float32),
+                         np.arange(W, dtype=np.float32), indexing="ij")
+    world = np.empty((S, H, W, 3), dtype=np.float32)
+    for s in range(S):
+        fx, fy = intrinsic[s, 0, 0], intrinsic[s, 1, 1]
+        cx, cy = intrinsic[s, 0, 2], intrinsic[s, 1, 2]
+        d = depth[s]
+        cam = np.stack([(us - cx) / fx * d, (vs - cy) / fy * d, d], axis=-1)  # (H,W,3)
+        R = extrinsic_c2w[s, :3, :3]
+        t = extrinsic_c2w[s, :3, 3]
+        world[s] = cam @ R.T + t
+    return world.astype(np.float32)
