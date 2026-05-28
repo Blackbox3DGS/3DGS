@@ -79,10 +79,14 @@ RUN git clone --depth 1 https://github.com/xinshuoweng/AB3DMOT.git /opt/AB3DMOT
 ENV AB3DMOT_ROOT=/opt/AB3DMOT
 
 # LingBot-MAP as an importable library. Its pyproject has no torch pin, so the
-# editable install won't disturb our torch 2.5.1. Re-assert numpy/opencv pins
-# afterwards (the standalone setup needed opencv<4.13).
+# install won't disturb our torch 2.5.1. Regular (non-editable) install — the
+# container never edits lingbot, and `-e` needs PEP 660's build_editable hook
+# which the isolated build env's setuptools lacked. Pre-upgrade setuptools and
+# skip build isolation so the build_wheel path uses a known-good toolchain.
+# Re-assert numpy/opencv pins afterwards (standalone setup needed opencv<4.13).
 RUN git clone https://github.com/Robbyant/lingbot-map.git /opt/lingbot-map && \
-    pip3 install --no-cache-dir -c /build/constraints.txt -e /opt/lingbot-map && \
+    pip3 install --no-cache-dir -U "setuptools>=70" wheel && \
+    pip3 install --no-cache-dir --no-build-isolation -c /build/constraints.txt /opt/lingbot-map && \
     pip3 install --no-cache-dir -c /build/constraints.txt "numpy>=1.24,<2" "opencv-python<4.13"
 
 # No COPY/ENTRYPOINT: the project code is bind-mounted at run time and executed
