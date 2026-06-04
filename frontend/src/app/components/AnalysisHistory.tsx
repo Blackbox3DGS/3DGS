@@ -45,12 +45,12 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
 
   const getStatusColor = (status: AnalysisRecord['status']) => {
     switch (status) {
-      case 'COMPLETED':         return 'text-green-600 bg-green-50';
+      case 'COMPLETED':         return 'text-[#299283] bg-[#e6f5f2]';
       case 'PROCESSING':
-      case 'PRE_PROCESSING':    return 'text-blue-600 bg-blue-50';
-      case 'WAITING_FOR_TARGET':return 'text-yellow-600 bg-yellow-50';
-      case 'PENDING':           return 'text-gray-600 bg-gray-50';
-      case 'FAILED':            return 'text-red-600 bg-red-50';
+      case 'PRE_PROCESSING':    return 'text-[#299283] bg-[#e6f5f2]';
+      case 'WAITING_FOR_TARGET':return 'text-[#c4851c] bg-[#fdf4e3]';
+      case 'PENDING':           return 'text-[#5a665e] bg-[#f7f9f8]';
+      case 'FAILED':            return 'text-[#c44040] bg-[#fbe9e9]';
     }
   };
 
@@ -102,30 +102,27 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
 
   const renderTableContent = () => (
     <>
-      <div className="flex flex-col gap-4 mb-4">
-        <div className="flex justify-between items-center">
-          <h2 className="text-gray-900">나의 분석 기록</h2>
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="영상명 검색..."
-                value={searchQuery}
-                onChange={(e) => updateSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-              />
-            </div>
-            {!isExpanded && (
-              <button
-                onClick={() => setIsExpanded(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
-              >
-                <Maximize2 className="w-4 h-4" />
-                전체 보기
-              </button>
-            )}
+      <div className="flex flex-col gap-3 mb-4">
+        <div className="flex flex-wrap justify-between items-center gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-[320px]">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[#b8c4be]" />
+            <input
+              type="text"
+              placeholder="영상명 검색..."
+              value={searchQuery}
+              onChange={(e) => updateSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 bg-[#f7f9f8] border border-[#dae3dd] rounded-lg focus:outline-none focus:bg-white focus:border-[#299283] focus:ring-2 focus:ring-[#299283]/15 text-[13px] transition-all"
+            />
           </div>
+          {!isExpanded && (
+            <button
+              onClick={() => setIsExpanded(true)}
+              className="flex items-center gap-1.5 px-3 py-2 text-[13px] text-[#5a665e] hover:text-[#20543d] hover:bg-[#eef2f0] rounded-md transition-colors"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              전체 보기
+            </button>
+          )}
         </div>
 
         {/* 날짜 필터 */}
@@ -135,21 +132,21 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
               onClick={() => { setShowAccidentDatePicker(!showAccidentDatePicker); setShowUploadDatePicker(false); }}
               className={`flex items-center gap-2 px-4 py-2 border rounded-md text-sm transition-colors ${
                 accidentDateRange?.from
-                  ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                  : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                  ? 'border-[#299283] bg-[#e6f5f2] text-[#1a5f54]'
+                  : 'border-[#b8c4be] bg-white text-[#5a665e] hover:bg-[#f7f9f8]'
               }`}
             >
               <Calendar className="w-4 h-4" />
               <span>사고 날짜: {formatDateRange(accidentDateRange)}</span>
             </button>
             {showAccidentDatePicker && (
-              <div className="absolute top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg p-3">
+              <div className="absolute top-full mt-2 z-20 bg-white border border-[#dae3dd] rounded-lg shadow-lg p-3">
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm text-gray-700">사고 날짜 범위 선택</span>
-                  <button onClick={() => setAccidentDateRange(undefined)} className="text-xs text-gray-500 hover:text-red-600">초기화</button>
+                  <span className="text-sm text-[#5a665e]">사고 날짜 범위 선택</span>
+                  <button onClick={() => setAccidentDateRange(undefined)} className="text-xs text-[#8a9590] hover:text-[#c44040]">초기화</button>
                 </div>
                 <DayPicker mode="range" selected={accidentDateRange} onSelect={setAccidentDateRange} locale={ko} className="rdp-custom" />
-                <button onClick={() => setShowAccidentDatePicker(false)} className="w-full mt-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm">적용</button>
+                <button onClick={() => setShowAccidentDatePicker(false)} className="w-full mt-2 px-4 py-2 bg-[#299283] text-white rounded-md hover:bg-[#1a5f54] text-sm">적용</button>
               </div>
             )}
           </div>
@@ -159,21 +156,21 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
               onClick={() => { setShowUploadDatePicker(!showUploadDatePicker); setShowAccidentDatePicker(false); }}
               className={`flex items-center gap-2 px-4 py-2 border rounded-md text-sm transition-colors ${
                 uploadDateRange?.from
-                  ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                  : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                  ? 'border-[#299283] bg-[#e6f5f2] text-[#1a5f54]'
+                  : 'border-[#b8c4be] bg-white text-[#5a665e] hover:bg-[#f7f9f8]'
               }`}
             >
               <Calendar className="w-4 h-4" />
               <span>업로드 날짜: {formatDateRange(uploadDateRange)}</span>
             </button>
             {showUploadDatePicker && (
-              <div className="absolute top-full mt-2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg p-3">
+              <div className="absolute top-full mt-2 z-20 bg-white border border-[#dae3dd] rounded-lg shadow-lg p-3">
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm text-gray-700">업로드 날짜 범위 선택</span>
-                  <button onClick={() => setUploadDateRange(undefined)} className="text-xs text-gray-500 hover:text-red-600">초기화</button>
+                  <span className="text-sm text-[#5a665e]">업로드 날짜 범위 선택</span>
+                  <button onClick={() => setUploadDateRange(undefined)} className="text-xs text-[#8a9590] hover:text-[#c44040]">초기화</button>
                 </div>
                 <DayPicker mode="range" selected={uploadDateRange} onSelect={setUploadDateRange} locale={ko} className="rdp-custom" />
-                <button onClick={() => setShowUploadDatePicker(false)} className="w-full mt-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm">적용</button>
+                <button onClick={() => setShowUploadDatePicker(false)} className="w-full mt-2 px-4 py-2 bg-[#299283] text-white rounded-md hover:bg-[#1a5f54] text-sm">적용</button>
               </div>
             )}
           </div>
@@ -181,7 +178,7 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
           {(accidentDateRange?.from || uploadDateRange?.from || searchQuery) && (
             <button
               onClick={() => { setAccidentDateRange(undefined); setUploadDateRange(undefined); updateSearchQuery(''); }}
-              className="flex items-center gap-2 px-4 py-2 border border-red-300 bg-red-50 text-red-700 rounded-md text-sm hover:bg-red-100 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 border border-[#e8a7a7] bg-[#fbe9e9] text-[#a83434] rounded-md text-sm hover:bg-[#f7d6d6] transition-colors"
             >
               <X className="w-4 h-4" />
               모든 필터 초기화
@@ -191,7 +188,7 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
       </div>
 
       {filteredRecords.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">
+        <div className="text-center py-8 text-[#8a9590]">
           {searchQuery || accidentDateRange?.from || uploadDateRange?.from
             ? '검색 결과가 없습니다.'
             : '분석 기록이 없습니다.'}
@@ -201,20 +198,20 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
           <div className={isExpanded ? 'max-h-[70vh] overflow-y-auto' : 'max-h-[400px] overflow-y-auto'}>
             <table className="w-full">
               <thead className="sticky top-0 bg-white z-10 shadow-sm">
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 text-gray-700">영상명</th>
-                  <th className="text-left py-3 px-4 text-gray-700">업로드 날짜</th>
-                  <th className="text-left py-3 px-4 text-gray-700">사고 날짜</th>
-                  <th className="text-left py-3 px-4 text-gray-700">상태</th>
-                  <th className="text-left py-3 px-4 text-gray-700">작업</th>
+                <tr className="border-b border-[#dae3dd]">
+                  <th className="text-left py-3 px-4 text-[#5a665e]">영상명</th>
+                  <th className="text-left py-3 px-4 text-[#5a665e]">업로드 날짜</th>
+                  <th className="text-left py-3 px-4 text-[#5a665e]">사고 날짜</th>
+                  <th className="text-left py-3 px-4 text-[#5a665e]">상태</th>
+                  <th className="text-left py-3 px-4 text-[#5a665e]">작업</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredRecords.map((record) => (
                   <tr
                     key={record.jobId}
-                    className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${
-                      selectedJobId === record.jobId ? 'bg-indigo-50' : ''
+                    className={`border-b border-[#eef2f0] hover:bg-[#f7f9f8] transition-colors ${
+                      selectedJobId === record.jobId ? 'bg-[#e6f5f2]' : ''
                     }`}
                   >
                     {/* 영상명 (편집 가능) */}
@@ -229,22 +226,22 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
                               if (e.key === 'Enter') saveEdit(record.jobId);
                               if (e.key === 'Escape') cancelEdit();
                             }}
-                            className="flex-1 px-2 py-1 border border-indigo-500 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="flex-1 px-2 py-1 border border-[#299283] rounded focus:outline-none focus:ring-2 focus:ring-[#299283]"
                             autoFocus
                           />
-                          <button onClick={() => saveEdit(record.jobId)} className="p-1 text-green-600 hover:bg-green-50 rounded" title="저장">
+                          <button onClick={() => saveEdit(record.jobId)} className="p-1 text-[#299283] hover:bg-[#e6f5f2] rounded" title="저장">
                             <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={cancelEdit} className="p-1 text-red-600 hover:bg-red-50 rounded" title="취소">
+                          <button onClick={cancelEdit} className="p-1 text-[#c44040] hover:bg-[#fbe9e9] rounded" title="취소">
                             <X className="w-4 h-4" />
                           </button>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-900">{record.customTitle || '(제목 없음)'}</span>
+                          <span className="text-[#20543d]">{record.customTitle || '(제목 없음)'}</span>
                           <button
                             onClick={() => startEditing(record)}
-                            className="p-1 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                            className="p-1 text-[#b8c4be] hover:text-[#299283] hover:bg-[#e6f5f2] rounded transition-colors"
                             title="이름 변경"
                           >
                             <Edit2 className="w-4 h-4" />
@@ -254,12 +251,12 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
                     </td>
 
                     {/* 업로드 날짜 */}
-                    <td className="py-3 px-4 text-gray-600">
+                    <td className="py-3 px-4 text-[#5a665e]">
                       {record.createdAt ? record.createdAt.slice(0, 10) : '-'}
                     </td>
 
                     {/* 사고 날짜 */}
-                    <td className="py-3 px-4 text-gray-900">
+                    <td className="py-3 px-4 text-[#20543d]">
                       {record.incidentDate ? record.incidentDate.slice(0, 10) : '-'}
                     </td>
 
@@ -272,13 +269,13 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
                         {/* 진행 중일 때 진행률 표시 */}
                         {(record.status === 'PROCESSING' || record.status === 'PRE_PROCESSING') && (
                           <div className="flex items-center gap-2">
-                            <div className="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="w-24 h-1.5 bg-[#dae3dd] rounded-full overflow-hidden">
                               <div
-                                className="h-full bg-blue-500 rounded-full transition-all"
+                                className="h-full bg-[#e6f5f2]0 rounded-full transition-all"
                                 style={{ width: `${record.progress}%` }}
                               />
                             </div>
-                            <span className="text-xs text-gray-500">{record.progress}%</span>
+                            <span className="text-xs text-[#8a9590]">{record.progress}%</span>
                           </div>
                         )}
                       </div>
@@ -289,7 +286,7 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => { onSelectJob(record.jobId); setIsExpanded(false); }}
-                          className="flex items-center gap-2 px-4 py-1 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                          className="flex items-center gap-2 px-4 py-1 bg-[#299283] text-white rounded-md hover:bg-[#1a5f54] transition-colors disabled:bg-[#b8c4be] disabled:cursor-not-allowed"
                           disabled={record.status !== 'COMPLETED'}
                         >
                           <Eye className="w-4 h-4" />
@@ -297,7 +294,7 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
                         </button>
                         <button
                           onClick={() => setDeletingRecord(record)}
-                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                          className="p-1.5 text-[#b8c4be] hover:text-[#c44040] hover:bg-[#fbe9e9] rounded transition-colors"
                           title="삭제"
                           aria-label="분석 기록 삭제"
                         >
@@ -317,18 +314,21 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
 
   return (
     <>
-      <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
+      <div
+        className="bg-white rounded-xl p-5"
+        style={{ border: '1px solid #dae3dd' }}
+      >
         {renderTableContent()}
       </div>
 
       {isExpanded && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-7xl h-[90vh] flex flex-col">
-            <div className="flex justify-between items-center p-6 border-b border-gray-200">
-              <h2 className="text-2xl text-gray-900">나의 분석 기록 - 전체 보기</h2>
+            <div className="flex justify-between items-center p-6 border-b border-[#dae3dd]">
+              <h2 className="text-2xl text-[#20543d]">나의 분석 기록 - 전체 보기</h2>
               <button
                 onClick={() => setIsExpanded(false)}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-[#5a665e] text-white rounded-md hover:bg-[#2c3530] transition-colors"
               >
                 <Minimize2 className="w-4 h-4" />
                 닫기
@@ -350,7 +350,7 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
           <AlertDialogHeader>
             <AlertDialogTitle>분석 기록을 삭제하시겠습니까?</AlertDialogTitle>
             <AlertDialogDescription>
-              <span className="font-medium text-gray-900">
+              <span className="font-medium text-[#20543d]">
                 "{deletingRecord?.customTitle || '(제목 없음)'}"
               </span>
               {' '}기록이 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
@@ -363,7 +363,7 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
                 if (deletingRecord) onDeleteRecord(deletingRecord.jobId);
                 setDeletingRecord(null);
               }}
-              className="bg-red-600 hover:bg-red-700 text-white"
+              className="bg-[#c44040] hover:bg-[#a83434] text-white"
             >
               삭제
             </AlertDialogAction>

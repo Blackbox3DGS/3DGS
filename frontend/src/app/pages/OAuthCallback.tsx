@@ -68,8 +68,8 @@ export function OAuthCallback() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
       <div className="bg-white rounded-lg shadow-xl p-8 flex flex-col items-center gap-4">
-        <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-        <p className="text-gray-600">로그인 처리 중...</p>
+        <div className="w-10 h-10 border-4 border-[#299283] border-t-transparent rounded-full animate-spin" />
+        <p className="text-[#5a665e]">로그인 처리 중...</p>
       </div>
     </div>
   );

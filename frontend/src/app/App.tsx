@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { LoginScreen } from './components/LoginScreen';
+import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
 import { OAuthCallback } from './pages/OAuthCallback';
 
@@ -13,7 +14,7 @@ function PrivateRoute({ children }: { children: ReactNode }) {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-10 h-10 border-4 border-[#299283] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -33,7 +34,7 @@ function PublicRoute({ children }: { children: ReactNode }) {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-10 h-10 border-4 border-[#299283] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -50,6 +51,9 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          {/* 랜딩 페이지 (모두 접근 가능) */}
+          <Route path="/" element={<LandingPage />} />
+
           {/* 로그인 페이지 (비로그인 전용) */}
           <Route
             path="/login"
@@ -73,8 +77,8 @@ export default function App() {
             }
           />
 
-          {/* 루트 및 그 외 경로: 로그인 상태에 따라 리디렉션 */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          {/* 그 외 경로: 랜딩으로 */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
