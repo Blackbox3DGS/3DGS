@@ -1,9 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 
+const LoginPreview3D = lazy(() => import('./LoginPreview3D'));
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
 
+/**
+ * 로그인 화면 — ReScene 브랜드 적용
+ * Deep Green (#20543d) + Teal (#299283) 2색 시스템
+ */
 export function LoginScreen() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -13,8 +19,8 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [preview3dActive, setPreview3dActive] = useState(false);
 
-  // /login?error=... 파라미터 처리 (OAuthCallback에서 넘어온 에러)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const error = params.get('error');
@@ -22,6 +28,7 @@ export function LoginScreen() {
       setErrorMessage(decodeURIComponent(error));
       navigate('/login', { replace: true });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleLogin = (e: React.FormEvent) => {
@@ -29,6 +36,10 @@ export function LoginScreen() {
     if (!username || !password) return;
     loginDemo();
     navigate('/dashboard', { replace: true });
+  };
+
+  const handleSignUp = () => {
+    navigate('/signup');
   };
 
   const redirectToOAuth = (provider: 'google' | 'kakao' | 'naver') => {
@@ -39,141 +50,519 @@ export function LoginScreen() {
     }, 100);
   };
 
+  const goLanding = () => navigate('/');
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-block p-3 bg-indigo-600 rounded-lg mb-4">
-            <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-            </svg>
-          </div>
-          <h1 className="text-gray-900 mb-2">3D 사고 복원 시스템</h1>
-          <p className="text-muted-foreground">블랙박스 영상 분석 플랫폼</p>
-        </div>
+    <>
+    <style>{`
+      @keyframes fadeIn3d {
+        from { opacity: 0; }
+        to   { opacity: 1; }
+      }
+    `}</style>
+    <div
+      className="min-h-screen text-white flex flex-col relative overflow-hidden"
+      style={{
+        backgroundColor: '#0a1e14',
+        fontFamily: '"Plus Jakarta Sans", "Pretendard", system-ui, sans-serif',
+      }}
+    >
 
-        {/* 에러 메시지 */}
-        {errorMessage && (
-          <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
-            소셜 로그인에 실패했습니다: {errorMessage}
-          </div>
-        )}
+      {/* Shared background grid */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage:
+            'linear-gradient(rgba(92,191,174,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(92,191,174,0.035) 1px, transparent 1px)',
+          backgroundSize: '48px 48px',
+          maskImage: 'radial-gradient(ellipse 80% 70% at 40% 50%, black 30%, transparent 80%)',
+          WebkitBackdropFilter: 'radial-gradient(ellipse 80% 70% at 40% 50%, black 30%, transparent 80%)',
+          WebkitMaskImage: 'radial-gradient(ellipse 80% 70% at 40% 50%, black 30%, transparent 80%)',
+        }}
+      />
 
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label htmlFor="username" className="block text-sm mb-2 text-gray-700">
-              아이디
-            </label>
-            <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="아이디를 입력하세요"
-            />
+      {/* Top bar */}
+      <header className="relative flex items-center justify-between px-8 pt-5 pb-3">
+        <button
+          onClick={goLanding}
+          className="flex items-center gap-2 transition-opacity hover:opacity-80"
+        >
+          <img
+            src="/rs-mark.png"
+            alt="ReScene"
+            className="h-5 w-5"
+            style={{ filter: 'brightness(0) invert(1)' }}
+          />
+          <span className="text-[13px] font-semibold tracking-tight">ReScene</span>
+          <span className="text-[10px] font-mono ml-2" style={{ color: 'rgba(255,255,255,0.35)' }}>
+            v0.1.0
+          </span>
+        </button>
+        <span className="text-[10px] font-mono" style={{ color: 'rgba(255,255,255,0.35)' }}>
+          블랙박스 기반 사고 분석 시스템
+        </span>
+      </header>
+
+      <div className="relative flex-1 grid lg:grid-cols-[1.25fr_1fr] gap-0 min-h-0">
+
+        {/* ─── Left: Reconstruction preview ─── */}
+        <div className="hidden lg:flex flex-col pl-8 pr-6 pb-6 pt-2 min-h-0">
+
+          {/* Case header */}
+          <div className="flex items-center justify-between mb-2.5">
+            <div className="flex items-center gap-3">
+              <span className="text-[13px] font-mono tracking-tight" style={{ color: 'rgba(255,255,255,0.85)' }}>
+                RC-2026-0041
+              </span>
+              <span
+                className="text-[9px] font-mono px-1.5 py-0.5 rounded"
+                style={{ color: '#5cbfae', backgroundColor: 'rgba(41,146,131,0.12)' }}
+              >
+                복원 완료
+              </span>
+              <span className="text-[10px] font-mono" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                2026-05-15
+              </span>
+            </div>
+            <div
+              className="flex items-center gap-4 text-[10px] font-mono"
+              style={{ color: 'rgba(255,255,255,0.45)' }}
+            >
+              <span>차량 2대</span>
+              <span>847 프레임</span>
+              <span>4.2초</span>
+              <span>자동</span>
+            </div>
           </div>
 
-          <div>
-            <label htmlFor="password" className="block text-sm mb-2 text-gray-700">
-              비밀번호
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="비밀번호를 입력하세요"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={!!loadingProvider}
-            className="w-full bg-indigo-600 text-white py-2 rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          {/* Reconstruction viewer */}
+          <div
+            className="relative rounded-lg overflow-hidden cursor-pointer flex-1 min-h-0"
+            style={{
+              backgroundColor: 'rgba(15,46,31,0.6)',
+              border: '1px solid rgba(255,255,255,0.06)',
+            }}
+            onMouseEnter={() => setPreview3dActive(true)}
+            onMouseLeave={() => setPreview3dActive(false)}
           >
-            로그인 (데모)
-          </button>
-        </form>
+            {/* Toolbar */}
+            <div
+              className="flex items-center justify-between px-3.5 py-2"
+              style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+            >
+              <div className="flex items-center gap-1">
+                <span
+                  className="text-[10px] font-mono px-2 py-0.5 rounded"
+                  style={{
+                    color: '#5cbfae',
+                    backgroundColor: 'rgba(41,146,131,0.1)',
+                  }}
+                >
+                  궤적 2D
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                  3D 뷰
+                </span>
+              </div>
+              <span className="text-[9px] font-mono" style={{ color: 'rgba(255,255,255,0.35)' }}>847 / 847</span>
+            </div>
 
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-300"></div>
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white text-gray-500">또는 소셜 로그인</span>
-          </div>
-        </div>
+            {/* SVG diagram */}
+            <div
+              className="absolute left-0 right-0 bottom-0"
+              style={{
+                top: '30px',
+                opacity: preview3dActive ? 0 : 1,
+                transition: 'opacity 0.4s ease',
+              }}
+            >
+              <svg
+                viewBox="0 0 480 360"
+                className="w-full h-full"
+                preserveAspectRatio="xMidYMid meet"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                {/* Grid */}
+                <g stroke="rgba(92,191,174,0.05)" strokeWidth="0.5">
+                  {[0,1,2,3,4,5,6,7,8].map(i => (
+                    <line key={`h${i}`} x1="28" y1={28 + i * 38} x2="452" y2={28 + i * 38} />
+                  ))}
+                  {[0,1,2,3,4,5,6,7,8].map(i => (
+                    <line key={`v${i}`} x1={28 + i * 53} y1="28" x2={28 + i * 53} y2="340" />
+                  ))}
+                </g>
 
-        <div className="space-y-3">
-          {/* Google */}
-          <button
-            type="button"
-            onClick={() => redirectToOAuth('google')}
-            disabled={!!loadingProvider}
-            className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loadingProvider === 'google' ? (
-              <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <svg className="w-5 h-5" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                {/* Trajectory A — teal */}
+                <path d="M72 70 C130 88, 175 125, 242 182" stroke="rgba(41,146,131,0.12)" strokeWidth="14" strokeLinecap="round" fill="none" />
+                <path d="M72 70 C130 88, 175 125, 242 182" stroke="#5cbfae" strokeOpacity="0.45" strokeWidth="1" strokeDasharray="5 4" fill="none" />
+
+                <circle cx="100" cy="80" r="1.5" fill="#5cbfae" fillOpacity="0.3" />
+                <text x="104" y="78" fontSize="6.5" fill="rgba(255,255,255,0.3)" fontFamily="ui-monospace, monospace">f.210</text>
+                <circle cx="140" cy="100" r="1.5" fill="#5cbfae" fillOpacity="0.35" />
+                <text x="144" y="98" fontSize="6.5" fill="rgba(255,255,255,0.3)" fontFamily="ui-monospace, monospace">f.420</text>
+                <circle cx="182" cy="126" r="1.5" fill="#5cbfae" fillOpacity="0.4" />
+                <text x="186" y="124" fontSize="6.5" fill="rgba(255,255,255,0.3)" fontFamily="ui-monospace, monospace">f.630</text>
+                <circle cx="216" cy="156" r="1.5" fill="#5cbfae" fillOpacity="0.45" />
+
+                {/* Trajectory B — light green */}
+                <path d="M408 290 C355 274, 310 238, 242 182" stroke="rgba(77,138,107,0.1)" strokeWidth="14" strokeLinecap="round" fill="none" />
+                <path d="M408 290 C355 274, 310 238, 242 182" stroke="#4d8a6b" strokeOpacity="0.4" strokeWidth="1" strokeDasharray="5 4" fill="none" />
+
+                <circle cx="380" cy="282" r="1.5" fill="#4d8a6b" fillOpacity="0.3" />
+                <text x="362" y="278" fontSize="6.5" fill="rgba(255,255,255,0.3)" fontFamily="ui-monospace, monospace">f.195</text>
+                <circle cx="342" cy="260" r="1.5" fill="#4d8a6b" fillOpacity="0.35" />
+                <circle cx="300" cy="236" r="1.5" fill="#4d8a6b" fillOpacity="0.4" />
+                <circle cx="268" cy="210" r="1.5" fill="#4d8a6b" fillOpacity="0.45" />
+
+                {/* Impact zone */}
+                <circle cx="242" cy="182" r="18" fill="#299283" fillOpacity="0.04" />
+                <circle cx="242" cy="182" r="7" fill="#299283" fillOpacity="0.08" />
+                <circle cx="242" cy="182" r="2" fill="#299283" fillOpacity="0.85" />
+
+                {/* Angle arc */}
+                <path d="M230 172 A15 15 0 0 1 254 192" stroke="rgba(255,255,255,0.18)" strokeWidth="0.6" fill="none" />
+                <text x="256" y="172" fontSize="7" fill="#5cbfae" fillOpacity="0.7" fontFamily="ui-monospace, monospace">47.2°</text>
+
+                {/* Vehicle A node */}
+                <circle cx="72" cy="70" r="3" fill="#299283" fillOpacity="0.12" stroke="#5cbfae" strokeOpacity="0.3" strokeWidth="0.7" />
+                <circle cx="72" cy="70" r="1.2" fill="#5cbfae" fillOpacity="0.85" />
+                <text x="80" y="67" fontSize="9" fill="#5cbfae" fillOpacity="0.7" fontFamily="ui-monospace, monospace">차량 A</text>
+                <text x="80" y="78" fontSize="7.5" fill="rgba(255,255,255,0.35)" fontFamily="ui-monospace, monospace">62.4 km/h</text>
+
+                {/* Vehicle B node */}
+                <circle cx="408" cy="290" r="3" fill="#4d8a6b" fillOpacity="0.15" stroke="#4d8a6b" strokeOpacity="0.4" strokeWidth="0.7" />
+                <circle cx="408" cy="290" r="1.2" fill="#4d8a6b" fillOpacity="0.85" />
+                <text x="376" y="312" fontSize="9" fill="#4d8a6b" fillOpacity="0.7" fontFamily="ui-monospace, monospace">차량 B</text>
+                <text x="364" y="323" fontSize="7.5" fill="rgba(255,255,255,0.35)" fontFamily="ui-monospace, monospace">44.8 km/h</text>
+
+                {/* Impact label */}
+                <text x="200" y="206" fontSize="7.5" fill="rgba(255,255,255,0.45)" fontFamily="ui-monospace, monospace">충돌 지점</text>
+                <text x="200" y="216" fontSize="7" fill="rgba(255,255,255,0.3)" fontFamily="ui-monospace, monospace">14:23:07.412</text>
+
+                {/* Distance line */}
+                <line x1="72" y1="340" x2="408" y2="340" stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" />
+                <line x1="72" y1="336" x2="72" y2="344" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
+                <line x1="242" y1="336" x2="242" y2="344" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
+                <line x1="408" y1="336" x2="408" y2="344" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
+                <text x="48" y="348" fontSize="6.5" fill="rgba(255,255,255,0.2)" fontFamily="ui-monospace, monospace">0m</text>
+                <text x="228" y="348" fontSize="6.5" fill="rgba(255,255,255,0.2)" fontFamily="ui-monospace, monospace">24m</text>
+                <text x="396" y="348" fontSize="6.5" fill="rgba(255,255,255,0.2)" fontFamily="ui-monospace, monospace">48m</text>
+
+                <text x="12" y="32" fontSize="6" fill="rgba(255,255,255,0.15)" fontFamily="ui-monospace, monospace">N</text>
+                <text x="12" y="338" fontSize="6" fill="rgba(255,255,255,0.15)" fontFamily="ui-monospace, monospace">S</text>
               </svg>
-            )}
-            <span className="text-gray-700">
-              {loadingProvider === 'google' ? '연결 중...' : 'Google로 계속하기'}
-            </span>
-          </button>
+            </div>
 
-          {/* 카카오 */}
-          <button
-            type="button"
-            onClick={() => redirectToOAuth('kakao')}
-            disabled={!!loadingProvider}
-            className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ backgroundColor: loadingProvider ? '#e8d200' : '#FEE500' }}
-          >
-            {loadingProvider === 'kakao' ? (
-              <div className="w-5 h-5 border-2 border-yellow-800 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="#3C1E1E">
-                <path d="M12 3C6.477 3 2 6.477 2 10.8c0 2.713 1.617 5.1 4.073 6.558-.18.67-.651 2.424-.746 2.8-.116.458.168.453.353.33.146-.097 2.313-1.563 3.252-2.198.34.047.687.072 1.068.072 5.523 0 10-3.477 10-7.8C22 6.477 17.523 3 12 3z" />
-              </svg>
-            )}
-            <span style={{ color: '#3C1E1E' }}>
-              {loadingProvider === 'kakao' ? '연결 중...' : '카카오로 계속하기'}
-            </span>
-          </button>
+            {/* Frame progress */}
+            <div
+              className="absolute bottom-0 left-0 right-0 z-10"
+              style={{
+                opacity: preview3dActive ? 0 : 1,
+                transition: 'opacity 0.4s ease',
+              }}
+            >
+              <div className="h-[2px]" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
+                <div className="h-full" style={{ width: '100%', backgroundColor: 'rgba(41,146,131,0.4)' }} />
+              </div>
+            </div>
 
-          {/* 네이버 */}
-          <button
-            type="button"
-            onClick={() => redirectToOAuth('naver')}
-            disabled={!!loadingProvider}
-            className="w-full flex items-center justify-center gap-3 px-4 py-2.5 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ backgroundColor: loadingProvider ? '#02a84b' : '#03C75A' }}
-          >
-            {loadingProvider === 'naver' ? (
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="white">
-                <path d="M16.273 12.845 7.376 0H0v24h7.726V11.156L16.624 24H24V0h-7.727v12.845z" />
-              </svg>
+            {/* 3D preview overlay */}
+            {preview3dActive && (
+              <div
+                className="absolute inset-0"
+                style={{ animation: 'fadeIn3d 0.4s ease' }}
+              >
+                <Suspense
+                  fallback={
+                    <div
+                      className="flex items-center justify-center h-full text-[11px]"
+                      style={{ color: 'rgba(255,255,255,0.4)' }}
+                    >
+                      로딩 중...
+                    </div>
+                  }
+                >
+                  <LoginPreview3D />
+                </Suspense>
+              </div>
             )}
-            <span>
-              {loadingProvider === 'naver' ? '연결 중...' : '네이버로 계속하기'}
-            </span>
-          </button>
+          </div>
+
+          {/* Summary + legend */}
+          <div className="mt-2.5 flex items-start gap-4">
+            <div
+              className="flex-1 rounded-md px-3.5 py-2"
+              style={{
+                backgroundColor: 'rgba(15,46,31,0.4)',
+                border: '1px solid rgba(255,255,255,0.05)',
+              }}
+            >
+              <div className="grid grid-cols-4 gap-x-3 gap-y-1.5">
+                {[
+                  ['충돌 각도', '47.2°'],
+                  ['충돌 시각', '14:23:07'],
+                  ['분석 거리', '48.3m'],
+                  ['동기화', '완료'],
+                  ['차량 A', '62.4 km/h'],
+                  ['차량 B', '44.8 km/h'],
+                  ['포인트 클라우드', '1.2M'],
+                  ['정확도', '94.7%'],
+                ].map(([k, v]) => (
+                  <div key={k}>
+                    <div className="text-[9px] mb-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>{k}</div>
+                    <div className="text-[11px] font-mono" style={{ color: 'rgba(255,255,255,0.75)' }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5 pt-1 shrink-0">
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'rgba(92,191,174,0.6)' }} />
+                <span style={{ color: 'rgba(255,255,255,0.45)' }}>차량 A</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'rgba(77,138,107,0.6)' }} />
+                <span style={{ color: 'rgba(255,255,255,0.45)' }}>차량 B</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <div className="w-1 h-1 rounded-full" style={{ backgroundColor: 'rgba(41,146,131,0.65)' }} />
+                <span style={{ color: 'rgba(255,255,255,0.45)' }}>충돌</span>
+              </div>
+            </div>
+          </div>
+
         </div>
 
-        <div className="mt-6 text-center text-sm text-gray-500">
-          <p>데모 버전: 아무 아이디/비밀번호로 로그인 가능</p>
+        {/* ─── Right: Login form ─── */}
+        <div className="flex items-center justify-center px-8 lg:pl-6 lg:pr-12">
+          <div className="w-full max-w-[340px]">
+
+            {/* Mobile brand */}
+            <button
+              onClick={goLanding}
+              className="lg:hidden flex items-center gap-2 mb-10 transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/rs-mark.png"
+                alt="ReScene"
+                className="h-5 w-5"
+                style={{ filter: 'brightness(0) invert(1)' }}
+              />
+              <span className="text-[13px] font-semibold tracking-tight text-white">ReScene</span>
+            </button>
+
+            {/* System context */}
+            <div className="flex items-center gap-2 mb-5">
+              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'rgba(92,191,174,0.7)' }} />
+              <span className="text-[10px] font-mono" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                시스템 정상 운영 중
+              </span>
+            </div>
+
+            {/* Title */}
+            <div className="mb-6">
+              <h1 className="text-[20px] font-medium tracking-tight text-white">
+                로그인
+              </h1>
+              <p className="mt-1 text-[13px]" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                계정에 로그인하여 분석을 시작하세요.
+              </p>
+            </div>
+
+            {/* Error */}
+            {errorMessage && (
+              <div
+                className="mb-5 px-3.5 py-2.5 rounded-md text-[13px]"
+                style={{
+                  backgroundColor: 'rgba(196,64,64,0.08)',
+                  border: '1px solid rgba(196,64,64,0.2)',
+                  color: 'rgba(255,180,180,0.95)',
+                }}
+              >
+                {errorMessage}
+              </div>
+            )}
+
+            {/* Form */}
+            <form onSubmit={handleLogin} className="space-y-3.5">
+              <div>
+                <label htmlFor="username" className="block text-[12px] mb-1.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                  아이디
+                </label>
+                <input
+                  id="username"
+                  type="text"
+                  placeholder="사용자 이름 입력"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-lg text-[14px] text-white transition-colors focus:outline-none"
+                  style={{
+                    backgroundColor: 'rgba(21,61,43,0.5)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                  }}
+                  onFocus={(e) => {
+                    e.currentTarget.style.borderColor = '#299283';
+                    e.currentTarget.style.boxShadow = '0 0 0 3px rgba(41,146,131,0.15)';
+                  }}
+                  onBlur={(e) => {
+                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                />
+              </div>
+              <div>
+                <label htmlFor="password" className="block text-[12px] mb-1.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                  비밀번호
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  placeholder="비밀번호 입력"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-lg text-[14px] text-white transition-colors focus:outline-none"
+                  style={{
+                    backgroundColor: 'rgba(21,61,43,0.5)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                  }}
+                  onFocus={(e) => {
+                    e.currentTarget.style.borderColor = '#299283';
+                    e.currentTarget.style.boxShadow = '0 0 0 3px rgba(41,146,131,0.15)';
+                  }}
+                  onBlur={(e) => {
+                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                />
+              </div>
+
+              <div className="pt-1">
+                <button
+                  type="submit"
+                  disabled={!!loadingProvider}
+                  className="w-full py-2.5 rounded-lg text-white text-[14px] font-medium transition-all hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  style={{ backgroundColor: '#299283' }}
+                  onMouseEnter={(e) => { if (!loadingProvider) e.currentTarget.style.backgroundColor = '#1a5f54'; }}
+                  onMouseLeave={(e) => { if (!loadingProvider) e.currentTarget.style.backgroundColor = '#299283'; }}
+                >
+                  로그인
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSignUp}
+                disabled={!!loadingProvider}
+                className="w-full py-2.5 rounded-lg bg-transparent text-[13px] transition-colors disabled:opacity-50"
+                style={{
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  color: 'rgba(255,255,255,0.7)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.04)';
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                }}
+              >
+                회원가입
+              </button>
+            </form>
+
+            {/* Divider */}
+            <div className="relative my-7">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
+              </div>
+              <div className="relative flex justify-center">
+                <span
+                  className="px-3 text-[11px]"
+                  style={{ color: 'rgba(255,255,255,0.4)', backgroundColor: '#0a1e14' }}
+                >
+                  소셜 계정으로 계속
+                </span>
+              </div>
+            </div>
+
+            {/* Social login */}
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => redirectToOAuth('google')}
+                disabled={!!loadingProvider}
+                className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 bg-white hover:bg-gray-50 text-gray-700 rounded-lg text-[13px] font-medium transition-colors disabled:opacity-50"
+              >
+                {loadingProvider === 'google' ? (
+                  <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                  </svg>
+                )}
+                <span>{loadingProvider === 'google' ? '연결 중...' : 'Google'}</span>
+              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => redirectToOAuth('kakao')}
+                  disabled={!!loadingProvider}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-colors disabled:opacity-50"
+                  style={{ backgroundColor: '#FEE500' }}
+                >
+                  {loadingProvider === 'kakao' ? (
+                    <div className="w-4 h-4 border-2 border-yellow-800/50 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="#3C1E1E">
+                      <path d="M12 3C6.477 3 2 6.477 2 10.8c0 2.713 1.617 5.1 4.073 6.558-.18.67-.651 2.424-.746 2.8-.116.458.168.453.353.33.146-.097 2.313-1.563 3.252-2.198.34.047.687.072 1.068.072 5.523 0 10-3.477 10-7.8C22 6.477 17.523 3 12 3z" />
+                    </svg>
+                  )}
+                  <span style={{ color: '#3C1E1E' }}>
+                    {loadingProvider === 'kakao' ? '...' : 'Kakao'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => redirectToOAuth('naver')}
+                  disabled={!!loadingProvider}
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 text-white rounded-lg text-[13px] font-medium transition-colors disabled:opacity-50"
+                  style={{ backgroundColor: '#03C75A' }}
+                >
+                  {loadingProvider === 'naver' ? (
+                    <div className="w-4 h-4 border-2 border-white/50 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="white">
+                      <path d="M16.273 12.845 7.376 0H0v24h7.726V11.156L16.624 24H24V0h-7.727v12.845z" />
+                    </svg>
+                  )}
+                  <span>{loadingProvider === 'naver' ? '...' : 'Naver'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Access context */}
+            <div
+              className="mt-7 flex items-center justify-between text-[10px]"
+              style={{ color: 'rgba(255,255,255,0.35)' }}
+            >
+              <span className="font-mono">최근 복원: 3건 대기 중</span>
+              <span className="font-mono">보안 접속</span>
+            </div>
+
+          </div>
         </div>
+
       </div>
     </div>
+    </>
   );
 }

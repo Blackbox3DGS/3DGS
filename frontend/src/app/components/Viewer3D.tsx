@@ -453,7 +453,7 @@ function HtmlFallbackPreview({ showVehicleA, showVehicleB, showAccidentPoint, sh
           <polyline points="720,280 650,320 590,355 545,390 515,425 500,470" fill="none" stroke="#f87171" strokeWidth="5" />
         </svg>
       )}
-      {showVehicleA && <div className="absolute left-[46%] top-[50%] h-10 w-20 -translate-x-1/2 -translate-y-1/2 rounded-xl bg-blue-500/85 shadow-xl" />}
+      {showVehicleA && <div className="absolute left-[46%] top-[50%] h-10 w-20 -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[#e6f5f2]0/85 shadow-xl" />}
       {showVehicleB && <div className="absolute left-[58%] top-[56%] h-10 w-20 -translate-x-1/2 -translate-y-1/2 rounded-xl bg-red-500/85 shadow-xl" />}
       {showAccidentPoint && <div className="absolute left-[51.5%] top-[61%] h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-400" />}
     </div>
@@ -802,7 +802,7 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
   }));
 
   return (
-    <div ref={wrapRef} className="relative h-[600px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-950">
+    <div ref={wrapRef} className="relative h-[600px] overflow-hidden rounded-2xl border border-[#dae3dd] bg-[#0a1e14]">
       {!noAssetsProvided && (
         <canvas ref={overlayCanvasRef} className="pointer-events-none absolute inset-0 z-10 h-full w-full" />
       )}
@@ -839,12 +839,12 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl }: Viewer3DProps) {
       <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h2 className="text-gray-900">3D 사고 복원 뷰어</h2>
-            <p className="text-sm text-gray-500 mt-1">Job ID: {jobId}</p>
+            <h2 className="text-[#20543d]">3D 사고 복원 뷰어</h2>
+            <p className="text-sm text-[#8a9590] mt-1">Job ID: {jobId}</p>
           </div>
           {status.phase === 'loading' && (
-            <div className="flex items-center gap-2 text-sm text-indigo-600">
-              <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <div className="flex items-center gap-2 text-sm text-[#299283]">
+              <div className="w-4 h-4 border-2 border-[#299283] border-t-transparent rounded-full animate-spin" />
               {status.message}
             </div>
           )}
@@ -858,8 +858,8 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl }: Viewer3DProps) {
           {/* 컨트롤 패널 */}
           <div className="space-y-4">
             {/* 표시 옵션 */}
-            <div className="rounded-xl border border-slate-200 p-4">
-              <p className="text-sm font-semibold text-slate-700 mb-3">표시 옵션</p>
+            <div className="rounded-xl border border-[#dae3dd] p-4">
+              <p className="text-sm font-semibold text-[#5a665e] mb-3">표시 옵션</p>
               <div className="space-y-2">
                 {[
                   { label: '차량 A', value: showVehicleA, onChange: setShowVehicleA },
@@ -867,8 +867,8 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl }: Viewer3DProps) {
                   { label: '궤적 라인', value: showTrajectoryLines, onChange: setShowTrajectoryLines },
                   { label: '사고 지점', value: showAccidentPoint, onChange: setShowAccidentPoint },
                 ].map(({ label, value, onChange }) => (
-                  <label key={label} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm cursor-pointer">
-                    <span className="text-slate-700">{label}</span>
+                  <label key={label} className="flex items-center justify-between rounded-lg bg-[#f7f9f8] px-3 py-2 text-sm cursor-pointer">
+                    <span className="text-[#5a665e]">{label}</span>
                     <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4 accent-indigo-600" />
                   </label>
                 ))}
@@ -876,23 +876,23 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl }: Viewer3DProps) {
             </div>
 
             {/* 재생 옵션 */}
-            <div className="rounded-xl border border-slate-200 p-4">
-              <p className="text-sm font-semibold text-slate-700 mb-3">재생 옵션</p>
+            <div className="rounded-xl border border-[#dae3dd] p-4">
+              <p className="text-sm font-semibold text-[#5a665e] mb-3">재생 옵션</p>
               <div className="space-y-3">
                 <button
                   onClick={() => setAutoPlay((v) => !v)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                  className="w-full rounded-lg border border-[#dae3dd] bg-white px-3 py-2 text-sm font-medium text-[#5a665e] hover:bg-[#f7f9f8] transition-colors"
                 >
                   {autoPlay ? '⏸ 정지' : '▶ 재생'}
                 </button>
                 <button
                   onClick={() => viewerPaneRef.current?.focusScene?.()}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                  className="w-full rounded-lg border border-[#dae3dd] bg-white px-3 py-2 text-sm font-medium text-[#5a665e] hover:bg-[#f7f9f8] transition-colors"
                 >
                   화면 맞추기
                 </button>
                 <div>
-                  <div className="flex justify-between text-xs text-slate-600 mb-1">
+                  <div className="flex justify-between text-xs text-[#5a665e] mb-1">
                     <span>재생 배속</span>
                     <span>{playbackSpeed.toFixed(2)}x</span>
                   </div>
@@ -907,15 +907,15 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl }: Viewer3DProps) {
             </div>
 
             {/* 충돌 정보 */}
-            <div className="rounded-xl border border-slate-200 p-4">
-              <p className="text-sm font-semibold text-slate-700 mb-3">충돌 순간 속도</p>
+            <div className="rounded-xl border border-[#dae3dd] p-4">
+              <p className="text-sm font-semibold text-[#5a665e] mb-3">충돌 순간 속도</p>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-slate-500">차량 A</span>
-                  <span className="font-semibold text-blue-600">{formatSpeedKmh(loadedMeta.collisionSpeedA as number)}</span>
+                  <span className="text-[#8a9590]">차량 A</span>
+                  <span className="font-semibold text-[#299283]">{formatSpeedKmh(loadedMeta.collisionSpeedA as number)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">차량 B</span>
+                  <span className="text-[#8a9590]">차량 B</span>
                   <span className="font-semibold text-red-500">{formatSpeedKmh(loadedMeta.collisionSpeedB as number)}</span>
                 </div>
               </div>

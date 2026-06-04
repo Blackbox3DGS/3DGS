@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, LogOut } from 'lucide-react';
+import { useNavigate } from 'react-router';
+import { Upload, LogOut, Activity, CheckCircle2, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { AnalysisHistory } from './AnalysisHistory';
 import { Viewer3D } from './Viewer3D';
@@ -82,6 +83,7 @@ const POLL_INTERVAL_MS = 5000;
 const SEARCH_DEBOUNCE_MS = 300;
 
 export function Dashboard() {
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
 
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -277,103 +279,278 @@ export function Dashboard() {
     }
   };
 
+  // Metrics
+  const totalCount = records.length;
+  const inProgressCount = records.filter(r => POLLING_STATUSES.includes(r.status)).length;
+  const completedCount = records.filter(r => r.status === 'COMPLETED').length;
+
+  const displayName =
+    user?.name?.trim() || (user ? generateNickname(user.userId || user.email || 'user') : '');
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+    <div
+      className="min-h-screen relative"
+      style={{
+        backgroundColor: '#f7f9f8',
+        fontFamily: '"Plus Jakarta Sans", "Pretendard", system-ui, sans-serif',
+      }}
+    >
+      {/* Subtle grid background */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0"
+        style={{
+          backgroundImage:
+            'linear-gradient(rgba(32,84,61,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(32,84,61,0.025) 1px, transparent 1px)',
+          backgroundSize: '48px 48px',
+          maskImage: 'linear-gradient(to bottom, black 0%, transparent 70%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, black 0%, transparent 70%)',
+        }}
+      />
+
+      {/* ─── Header ─── */}
+      <header
+        className="sticky top-0 z-30 backdrop-blur-md"
+        style={{
+          backgroundColor: 'rgba(255,255,255,0.85)',
+          borderBottom: '1px solid #dae3dd',
+        }}
+      >
+        <div className="max-w-7xl mx-auto px-6 lg:px-10 h-16 flex items-center justify-between">
+          <button
+            onClick={() => navigate('/')}
+            className="flex items-center gap-2.5 transition-opacity hover:opacity-80"
+          >
+            <img src="/rs-mark.png" alt="ReScene" className="h-7 w-7" />
+            <span className="text-[16px] font-semibold tracking-tight text-[#20543d]">
+              ReScene
+            </span>
+            <span
+              className="text-[10px] font-mono px-2 py-0.5 rounded ml-1 hidden sm:inline-flex"
+              style={{ color: '#299283', backgroundColor: 'rgba(41,146,131,0.08)' }}
+            >
+              DASHBOARD
+            </span>
+          </button>
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-600 rounded-lg">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-              </svg>
-            </div>
-            <h1 className="text-gray-900">3D 사고 복원 시스템</h1>
-          </div>
-          <div className="flex items-center gap-4">
             {user && (
-              <span className="text-sm text-gray-600">
-                {user.name?.trim() || generateNickname(user.userId || user.email || 'user')}님
-              </span>
+              <div className="hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-full" style={{ backgroundColor: '#eef2f0' }}>
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-semibold text-white"
+                  style={{ backgroundColor: '#299283' }}
+                >
+                  {displayName.charAt(0) || 'U'}
+                </div>
+                <span className="text-[13px] text-[#5a665e]">{displayName}</span>
+              </div>
             )}
             <button
               onClick={logout}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 text-[13px] text-[#5a665e] hover:text-[#20543d] hover:bg-[#eef2f0] rounded-md transition-colors"
             >
               <LogOut className="w-4 h-4" />
-              로그아웃
+              <span className="hidden sm:inline">로그아웃</span>
             </button>
           </div>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Upload Section */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
-          <h2 className="text-gray-900 mb-4">새 영상 업로드</h2>
+      <main className="relative max-w-7xl mx-auto px-6 lg:px-10 py-10">
 
-          <div
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={handleDrop}
-            className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
-              isDragging ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 bg-gray-50'
-            }`}
-          >
-            {isUploading ? (
-              <div className="flex flex-col items-center gap-4">
-                <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <p className="text-gray-600">업로드 중...</p>
+        {/* ─── Top: Welcome + Metrics ─── */}
+        <div className="mb-10 grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-8 items-end">
+          <div>
+            <div
+              className="text-[11px] tracking-widest uppercase mb-2 font-medium"
+              style={{ color: '#299283' }}
+            >
+              Dashboard
+            </div>
+            <h1 className="text-[28px] md:text-[32px] font-bold tracking-tight text-[#20543d] leading-tight">
+              {displayName ? `${displayName}님, 안녕하세요` : '안녕하세요'}
+            </h1>
+            <p className="mt-2 text-[14px] text-[#5a665e]">
+              새로운 영상을 업로드하거나 기존 분석 기록을 확인하세요.
+            </p>
+          </div>
+
+          {/* Metrics */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: '전체', value: totalCount, Icon: Activity, accent: false },
+              { label: '진행 중', value: inProgressCount, Icon: Clock, accent: true },
+              { label: '완료', value: completedCount, Icon: CheckCircle2, accent: false },
+            ].map(({ label, value, Icon, accent }) => (
+              <div
+                key={label}
+                className="rounded-lg px-4 py-3 bg-white min-w-[110px]"
+                style={{
+                  border: accent ? '1px solid rgba(41,146,131,0.25)' : '1px solid #dae3dd',
+                  boxShadow: accent ? '0 0 0 3px rgba(41,146,131,0.06)' : 'none',
+                }}
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] text-[#8a9590]">{label}</span>
+                  <Icon className="w-3.5 h-3.5" style={{ color: accent ? '#299283' : '#b8c4be' }} />
+                </div>
+                <div
+                  className="text-[22px] font-bold leading-none font-mono"
+                  style={{ color: accent ? '#299283' : '#20543d' }}
+                >
+                  {value}
+                </div>
               </div>
-            ) : (
-              <>
-                <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-                <p className="text-gray-700 mb-2">블랙박스 영상을 업로드하세요</p>
-                <p className="text-sm text-gray-500 mb-4">
-                  파일을 드래그 앤 드롭하거나 클릭하여 선택 (최대 2GB)
-                </p>
-                <label className="px-6 py-2 bg-white border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer transition-colors">
-                  파일 선택
-                  <input
-                    type="file"
-                    accept="video/*"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-                </label>
-              </>
-            )}
+            ))}
           </div>
         </div>
 
-        {/* Analysis History */}
-        {isLoading ? (
-          <div className="bg-white rounded-lg shadow-sm p-6 mb-8 flex items-center justify-center h-40">
-            <div className="flex flex-col items-center gap-3 text-gray-500">
-              <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm">분석 기록을 불러오는 중...</span>
+        {/* ─── Upload Section ─── */}
+        <section className="mb-10">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-1 h-4 rounded-full" style={{ backgroundColor: '#299283' }} />
+              <h2 className="text-[15px] font-semibold tracking-tight text-[#20543d]">
+                새 영상 업로드
+              </h2>
+            </div>
+            <span className="text-[11px] text-[#8a9590] font-mono">
+              MP4 · AVI · MOV · 최대 2GB
+            </span>
+          </div>
+
+          <div
+            className="bg-white rounded-xl overflow-hidden"
+            style={{ border: '1px solid #dae3dd' }}
+          >
+            <div
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+              className="border-2 border-dashed m-2 rounded-lg p-10 text-center transition-all"
+              style={{
+                borderColor: isDragging ? '#299283' : '#dae3dd',
+                backgroundColor: isDragging ? '#e6f5f2' : 'transparent',
+              }}
+            >
+              {isUploading ? (
+                <div className="flex flex-col items-center gap-3 py-4">
+                  <div className="w-9 h-9 border-[3px] border-[#299283] border-t-transparent rounded-full animate-spin" />
+                  <p className="text-[14px] text-[#5a665e]">업로드 중...</p>
+                </div>
+              ) : (
+                <>
+                  <div
+                    className="inline-flex items-center justify-center w-14 h-14 rounded-full mb-4"
+                    style={{ backgroundColor: '#e6f5f2' }}
+                  >
+                    <Upload className="w-6 h-6" style={{ color: '#299283' }} />
+                  </div>
+                  <p className="text-[15px] font-medium text-[#20543d] mb-1">
+                    블랙박스 영상을 업로드하세요
+                  </p>
+                  <p className="text-[13px] text-[#8a9590] mb-5">
+                    파일을 드래그 앤 드롭하거나 아래 버튼을 클릭하세요
+                  </p>
+                  <label
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-medium text-white cursor-pointer transition-all hover:scale-[1.01]"
+                    style={{ backgroundColor: '#299283' }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1a5f54')}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#299283')}
+                  >
+                    파일 선택
+                    <input
+                      type="file"
+                      accept="video/*"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                    />
+                  </label>
+                </>
+              )}
             </div>
           </div>
-        ) : (
-          <AnalysisHistory
-            records={records}
-            selectedJobId={selectedJobId}
-            onSelectJob={setSelectedJobId}
-            onRenameVideo={handleRenameVideo}
-            onDeleteRecord={handleDeleteRecord}
-            onSearchChange={setSearchKeyword}
-          />
-        )}
+        </section>
 
-        {/* 3D Viewer: COMPLETED 상태인 것만 표시 */}
+        {/* ─── Analysis History ─── */}
+        <section className="mb-10">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-1 h-4 rounded-full" style={{ backgroundColor: '#299283' }} />
+              <h2 className="text-[15px] font-semibold tracking-tight text-[#20543d]">
+                나의 분석 기록
+              </h2>
+              {!isLoading && totalCount > 0 && (
+                <span
+                  className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                  style={{ color: '#5a665e', backgroundColor: '#eef2f0' }}
+                >
+                  {totalCount}건
+                </span>
+              )}
+            </div>
+            {!isDemo && inProgressCount > 0 && (
+              <div className="flex items-center gap-1.5 text-[11px]" style={{ color: '#299283' }}>
+                <div
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{
+                    backgroundColor: '#299283',
+                    animation: 'pulse 1.5s ease-in-out infinite',
+                  }}
+                />
+                <span className="font-mono">{inProgressCount}건 처리 중 · 자동 갱신</span>
+              </div>
+            )}
+          </div>
+
+          {isLoading ? (
+            <div
+              className="bg-white rounded-xl flex items-center justify-center h-48"
+              style={{ border: '1px solid #dae3dd' }}
+            >
+              <div className="flex flex-col items-center gap-3 text-[#8a9590]">
+                <div className="w-7 h-7 border-[3px] border-[#299283] border-t-transparent rounded-full animate-spin" />
+                <span className="text-[13px]">분석 기록을 불러오는 중...</span>
+              </div>
+            </div>
+          ) : (
+            <AnalysisHistory
+              records={records}
+              selectedJobId={selectedJobId}
+              onSelectJob={setSelectedJobId}
+              onRenameVideo={handleRenameVideo}
+              onDeleteRecord={handleDeleteRecord}
+              onSearchChange={setSearchKeyword}
+            />
+          )}
+        </section>
+
+        {/* ─── 3D Viewer ─── */}
         {selectedRecord && selectedRecord.status === 'COMPLETED' && (
-          <Viewer3D
-            jobId={selectedRecord.jobId}
-            resultUrl={selectedRecord.resultUrl}
-            trajectoryUrl={selectedRecord.trajectoryUrl}
-          />
+          <section className="mb-10">
+            <div className="flex items-center gap-2.5 mb-3">
+              <div className="w-1 h-4 rounded-full" style={{ backgroundColor: '#299283' }} />
+              <h2 className="text-[15px] font-semibold tracking-tight text-[#20543d]">
+                3D 사고 복원
+              </h2>
+              <span className="text-[11px] font-mono text-[#8a9590]">
+                {selectedRecord.customTitle}
+              </span>
+            </div>
+            <Viewer3D
+              jobId={selectedRecord.jobId}
+              resultUrl={selectedRecord.resultUrl}
+              trajectoryUrl={selectedRecord.trajectoryUrl}
+            />
+          </section>
         )}
-      </div>
+      </main>
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   );
 }
