@@ -379,10 +379,7 @@ export function LoginScreen() {
                 <button
                   type="submit"
                   disabled={isSubmitting || !!loadingProvider}
-                  className="w-full py-2.5 rounded-lg text-white text-[14px] font-medium transition-all hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
-                  style={{ backgroundColor: '#299283' }}
-                  onMouseEnter={(e) => { if (!isSubmitting && !loadingProvider) e.currentTarget.style.backgroundColor = '#1a5f54'; }}
-                  onMouseLeave={(e) => { if (!isSubmitting && !loadingProvider) e.currentTarget.style.backgroundColor = '#299283'; }}
+                  className="rs-btn-primary w-full py-2.5 rounded-lg text-[14px] font-medium flex items-center justify-center gap-2"
                 >
                   {isSubmitting ? (
                     <>
