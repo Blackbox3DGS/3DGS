@@ -179,3 +179,106 @@
     line-height: 1.5;
   }
 }
+
+/* ============================================================
+ * ReScene 브랜드 디자인 토큰
+ * Deep Green (#20543d) + Teal (#299283) 2색 시스템
+ * 컴포넌트의 하드코딩 hex 대신 var(--...) / 유틸리티로 사용
+ * ============================================================ */
+:root {
+  /* Green scale */
+  --green-950: #0a1e14;
+  --green-900: #0f2e1f;
+  --green-800: #153d2b;
+  --green-700: #1a4a34;
+  --green-500: #20543d;
+  --green-300: #4d8a6b;
+  --green-50:  #e6f0eb;
+
+  /* Teal scale */
+  --teal-900: #0d3d35;
+  --teal-700: #1a5f54;
+  --teal-500: #299283;
+  --teal-300: #5cbfae;
+  --teal-50:  #e6f5f2;
+
+  /* Neutral scale */
+  --neutral-600: #2c3530;
+  --neutral-500: #5a665e;
+  --neutral-400: #8a9590;
+  --neutral-300: #b8c4be;
+  --neutral-200: #dae3dd;
+  --neutral-100: #eef2f0;
+  --neutral-50:  #f7f9f8;
+
+  /* Semantic */
+  --rs-danger: #c44040;
+  --rs-danger-dark: #a83434;
+  --rs-danger-bg: #fbe9e9;
+  --rs-warning: #c4851c;
+  --rs-warning-bg: #fdf4e3;
+
+  /* Elevation — brand-tinted, consistent layer system */
+  --rs-shadow-xs: 0 1px 2px rgba(15, 46, 31, 0.04);
+  --rs-shadow-sm: 0 1px 3px rgba(15, 46, 31, 0.06), 0 1px 2px rgba(15, 46, 31, 0.04);
+  --rs-shadow-md: 0 4px 12px rgba(15, 46, 31, 0.08), 0 2px 4px rgba(15, 46, 31, 0.04);
+  --rs-shadow-lg: 0 12px 32px rgba(15, 46, 31, 0.12), 0 4px 8px rgba(15, 46, 31, 0.06);
+  --rs-ring: 0 0 0 3px rgba(41, 146, 131, 0.15);
+}
+
+/* Tailwind 유틸리티로 노출 (bg-brand, text-brand-fg 등) */
+@theme inline {
+  --color-brand: var(--teal-500);
+  --color-brand-hover: var(--teal-700);
+  --color-brand-soft: var(--teal-50);
+  --color-brand-fg: var(--teal-300);
+  --color-ink: var(--green-500);
+  --color-ink-deep: var(--green-950);
+}
+
+@layer components {
+  /* 카드 — 일관된 elevation */
+  .rs-card {
+    background: #fff;
+    border: 1px solid var(--neutral-200);
+    border-radius: 0.75rem;
+    box-shadow: var(--rs-shadow-sm);
+  }
+  .rs-card-hover {
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+  }
+  .rs-card-hover:hover {
+    box-shadow: var(--rs-shadow-md);
+    transform: translateY(-1px);
+  }
+
+  /* 기본 버튼 — CSS hover로 깜빡임 제거 */
+  .rs-btn-primary {
+    background: var(--teal-500);
+    color: #fff;
+    transition: background-color 0.15s ease, transform 0.1s ease;
+  }
+  .rs-btn-primary:hover:not(:disabled) { background: var(--teal-700); }
+  .rs-btn-primary:active:not(:disabled) { transform: scale(0.99); }
+  .rs-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+@layer utilities {
+  /* 지표 숫자가 흔들리지 않도록 */
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  /* 포커스 링 유틸 */
+  .rs-focus:focus-visible {
+    outline: none;
+    box-shadow: var(--rs-ring);
+    border-color: var(--teal-500);
+  }
+}
+
+/* 키보드 포커스에만 브랜드 링 (마우스 클릭엔 안 뜸) */
+@layer base {
+  :where(button, a, input, textarea, select):focus-visible {
+    outline: 2px solid var(--teal-500);
+    outline-offset: 2px;
+  }
+}

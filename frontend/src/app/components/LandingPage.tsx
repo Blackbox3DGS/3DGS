@@ -42,24 +42,7 @@ export function LandingPage() {
   return (
     <>
       <style>{`
-        :root {
-          --green-950: #0a1e14;
-          --green-900: #0f2e1f;
-          --green-800: #153d2b;
-          --green-700: #1a4a34;
-          --green-500: #20543d;
-          --green-300: #4d8a6b;
-          --green-50:  #e6f0eb;
-          --teal-900:  #0d3d35;
-          --teal-700:  #1a5f54;
-          --teal-500:  #299283;
-          --teal-300:  #5cbfae;
-          --neutral-500: #5a665e;
-          --neutral-400: #8a9590;
-          --neutral-200: #dae3dd;
-          --neutral-100: #eef2f0;
-          --neutral-50:  #f7f9f8;
-        }
+        /* 브랜드 색상 토큰은 styles/theme.css 전역 :root에서 상속 */
         .rs-reveal {
           opacity: 0;
           transform: translateY(28px);
@@ -125,10 +108,7 @@ export function LandingPage() {
             </div>
             <button
               onClick={goLogin}
-              className="px-5 py-2 rounded-lg text-[13px] font-medium text-white transition-all hover:scale-[1.02]"
-              style={{ backgroundColor: 'var(--teal-500)' }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--teal-700)')}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'var(--teal-500)')}
+              className="rs-btn-primary px-5 py-2 rounded-lg text-[13px] font-medium"
             >
               시작하기
             </button>
