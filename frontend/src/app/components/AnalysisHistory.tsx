@@ -271,7 +271,7 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
                           <div className="flex items-center gap-2">
                             <div className="w-24 h-1.5 bg-[#dae3dd] rounded-full overflow-hidden">
                               <div
-                                className="h-full bg-[#e6f5f2]0 rounded-full transition-all"
+                                className="h-full bg-[#299283] rounded-full transition-all"
                                 style={{ width: `${record.progress}%` }}
                               />
                             </div>
