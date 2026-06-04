@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Eye, Edit2, Check, X, Search, Calendar, Maximize2, Minimize2, Trash2 } from 'lucide-react';
+import { Eye, Edit2, Check, X, Search, Calendar, Maximize2, Minimize2, Trash2, Inbox, SearchX } from 'lucide-react';
 import { DayPicker, DateRange } from 'react-day-picker';
 import { format, isWithinInterval, parseISO } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -188,11 +188,28 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
       </div>
 
       {filteredRecords.length === 0 ? (
-        <div className="text-center py-8 text-[#8a9590]">
-          {searchQuery || accidentDateRange?.from || uploadDateRange?.from
-            ? '검색 결과가 없습니다.'
-            : '분석 기록이 없습니다.'}
-        </div>
+        (() => {
+          const isFiltered = !!(searchQuery || accidentDateRange?.from || uploadDateRange?.from);
+          const EmptyIcon = isFiltered ? SearchX : Inbox;
+          return (
+            <div className="flex flex-col items-center justify-center text-center py-14 px-6">
+              <div
+                className="inline-flex items-center justify-center w-14 h-14 rounded-full mb-4"
+                style={{ backgroundColor: 'var(--neutral-100)' }}
+              >
+                <EmptyIcon className="w-6 h-6" style={{ color: 'var(--neutral-400)' }} />
+              </div>
+              <p className="text-[15px] font-medium" style={{ color: 'var(--green-500)' }}>
+                {isFiltered ? '검색 결과가 없습니다' : '아직 분석 기록이 없습니다'}
+              </p>
+              <p className="mt-1.5 text-[13px] max-w-[320px]" style={{ color: 'var(--neutral-400)' }}>
+                {isFiltered
+                  ? '검색어나 날짜 필터를 조정해 다시 시도해보세요.'
+                  : '위에서 블랙박스 영상을 업로드하면 분석이 시작됩니다.'}
+              </p>
+            </div>
+          );
+        })()
       ) : (
         <div className="overflow-x-auto">
           <div className={isExpanded ? 'max-h-[70vh] overflow-y-auto' : 'max-h-[400px] overflow-y-auto'}>
@@ -316,7 +333,7 @@ export function AnalysisHistory({ records, selectedJobId, onSelectJob, onRenameV
     <>
       <div
         className="bg-white rounded-xl p-5"
-        style={{ border: '1px solid #dae3dd' }}
+        style={{ border: '1px solid var(--neutral-200)', boxShadow: 'var(--rs-shadow-sm)' }}
       >
         {renderTableContent()}
       </div>
