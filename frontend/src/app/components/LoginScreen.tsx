@@ -10,7 +10,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080
 export function LoginScreen() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { loginWithCredentials } = useAuth();
+  const { loginWithCredentials, loginDemo } = useAuth();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -498,6 +498,18 @@ export function LoginScreen() {
               <span className="font-mono">최근 복원: 3건 대기 중</span>
               <span className="font-mono">보안 접속</span>
             </div>
+
+            {/* TODO: 배포 전 제거 — 데모 체험 */}
+            <button
+              type="button"
+              onClick={() => { loginDemo(); navigate('/dashboard', { replace: true }); }}
+              className="mt-4 w-full text-center text-[11px] font-mono transition-colors"
+              style={{ color: 'rgba(255,255,255,0.2)' }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.2)')}
+            >
+              데모로 체험하기
+            </button>
 
           </div>
         </div>
