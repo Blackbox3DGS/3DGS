@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import apiClient from '../lib/apiClient';
 
-// 백엔드 ProfileResponse 필드명에 맞춤
 export interface User {
   userId: string;
   name: string;
@@ -11,10 +10,17 @@ export interface User {
   socialProvider?: string;
 }
 
+interface LoginResponse {
+  accessToken: string;
+  refreshToken: string;
+  name: string;
+}
+
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   login: (token: string) => Promise<void>;
+  loginWithCredentials: (userId: string, password: string) => Promise<void>;
   loginDemo: () => void;
   logout: () => Promise<void>;
 }
@@ -25,9 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 앱 시작 시: 저장된 토큰으로 유저 정보 복원
   useEffect(() => {
-    // OAuth 콜백 중이면 실행 막기
     if (window.location.pathname === '/oauth/callback') {
       setIsLoading(false);
       return;
@@ -37,7 +41,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
       return;
     }
-    // 데모 토큰이면 백엔드 호출 없이 처리
     if (token === 'demo-token') {
       setUser({ userId: 'demo', name: '데모 사용자', email: 'demo@example.com' });
       setIsLoading(false);
@@ -53,20 +56,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setIsLoading(false));
   }, []);
 
-  // OAuth 콜백에서 토큰 받았을 때 호출
+  // OAuth 소셜 로그인: 토큰을 받아 프로필 조회
   const login = async (token: string) => {
     localStorage.setItem('accessToken', token);
     const res = await apiClient.get<User>('/api/auth/profile');
     setUser(res.data);
   };
 
-  // 데모 로그인 (아이디/비밀번호 폼)
+  // 아이디/비밀번호 로그인: 백엔드 /api/auth/login 호출
+  const loginWithCredentials = async (userId: string, password: string) => {
+    const res = await apiClient.post<LoginResponse>('/api/auth/login', { userId, password });
+    const { accessToken, refreshToken } = res.data;
+    localStorage.setItem('accessToken', accessToken);
+    if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
+    const profileRes = await apiClient.get<User>('/api/auth/profile');
+    setUser(profileRes.data);
+  };
+
   const loginDemo = () => {
     localStorage.setItem('accessToken', 'demo-token');
     setUser({ userId: 'demo', name: '데모 사용자', email: 'demo@example.com' });
   };
 
-  // 로그아웃: 백엔드 토큰 무효화 + 로컬 상태 초기화
   const logout = async () => {
     try {
       await apiClient.delete('/api/auth/logout');
@@ -80,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, loginDemo, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, loginWithCredentials, loginDemo, logout }}>
       {children}
     </AuthContext.Provider>
   );
