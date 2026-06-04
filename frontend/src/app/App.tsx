@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { LoginScreen } from './components/LoginScreen';
+import { SignupScreen } from './components/SignupScreen';
 import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
 import { OAuthCallback } from './pages/OAuthCallback';
@@ -60,6 +61,16 @@ export default function App() {
             element={
               <PublicRoute>
                 <LoginScreen />
+              </PublicRoute>
+            }
+          />
+
+          {/* 회원가입 페이지 (비로그인 전용) */}
+          <Route
+            path="/signup"
+            element={
+              <PublicRoute>
+                <SignupScreen />
               </PublicRoute>
             }
           />
