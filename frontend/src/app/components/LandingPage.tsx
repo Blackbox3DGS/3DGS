@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
+import { TrajectoryDiagram } from './TrajectoryDiagram';
 
 /**
  * ReScene 랜딩 페이지
@@ -41,24 +42,7 @@ export function LandingPage() {
   return (
     <>
       <style>{`
-        :root {
-          --green-950: #0a1e14;
-          --green-900: #0f2e1f;
-          --green-800: #153d2b;
-          --green-700: #1a4a34;
-          --green-500: #20543d;
-          --green-300: #4d8a6b;
-          --green-50:  #e6f0eb;
-          --teal-900:  #0d3d35;
-          --teal-700:  #1a5f54;
-          --teal-500:  #299283;
-          --teal-300:  #5cbfae;
-          --neutral-500: #5a665e;
-          --neutral-400: #8a9590;
-          --neutral-200: #dae3dd;
-          --neutral-100: #eef2f0;
-          --neutral-50:  #f7f9f8;
-        }
+        /* 브랜드 색상 토큰은 styles/theme.css 전역 :root에서 상속 */
         .rs-reveal {
           opacity: 0;
           transform: translateY(28px);
@@ -124,10 +108,7 @@ export function LandingPage() {
             </div>
             <button
               onClick={goLogin}
-              className="px-5 py-2 rounded-lg text-[13px] font-medium text-white transition-all hover:scale-[1.02]"
-              style={{ backgroundColor: 'var(--teal-500)' }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--teal-700)')}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'var(--teal-500)')}
+              className="rs-btn-primary px-5 py-2 rounded-lg text-[13px] font-medium"
             >
               시작하기
             </button>
@@ -356,50 +337,7 @@ export function LandingPage() {
 
                 {/* SVG diagram */}
                 <div className="absolute left-0 right-0" style={{ top: '38px', bottom: '0' }}>
-                  <svg viewBox="0 0 480 360" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    {/* Grid */}
-                    <g stroke="rgba(92,191,174,0.05)" strokeWidth="0.5">
-                      {[0,1,2,3,4,5,6,7,8].map(i => (
-                        <line key={`h${i}`} x1="28" y1={28 + i * 38} x2="452" y2={28 + i * 38} />
-                      ))}
-                      {[0,1,2,3,4,5,6,7,8].map(i => (
-                        <line key={`v${i}`} x1={28 + i * 53} y1="28" x2={28 + i * 53} y2="340" />
-                      ))}
-                    </g>
-
-                    {/* Trajectory A — teal */}
-                    <path d="M72 70 C130 88, 175 125, 242 182" stroke="rgba(41,146,131,0.15)" strokeWidth="18" strokeLinecap="round" fill="none" />
-                    <path d="M72 70 C130 88, 175 125, 242 182" stroke="var(--teal-300)" strokeOpacity="0.6" strokeWidth="1.2" strokeDasharray="6 4" fill="none" />
-
-                    {/* Trajectory B — green-light */}
-                    <path d="M408 290 C355 274, 310 238, 242 182" stroke="rgba(77,138,107,0.15)" strokeWidth="18" strokeLinecap="round" fill="none" />
-                    <path d="M408 290 C355 274, 310 238, 242 182" stroke="var(--green-300)" strokeOpacity="0.55" strokeWidth="1.2" strokeDasharray="6 4" fill="none" />
-
-                    {/* Impact */}
-                    <circle cx="242" cy="182" r="22" fill="var(--teal-500)" fillOpacity="0.06" />
-                    <circle cx="242" cy="182" r="9" fill="var(--teal-500)" fillOpacity="0.18" />
-                    <circle cx="242" cy="182" r="3" fill="var(--teal-500)" />
-
-                    {/* Angle */}
-                    <path d="M230 172 A15 15 0 0 1 254 192" stroke="rgba(255,255,255,0.2)" strokeWidth="0.6" fill="none" />
-                    <text x="256" y="172" fontSize="9" fill="var(--teal-300)" fontFamily="ui-monospace, monospace">47.2°</text>
-
-                    {/* A node */}
-                    <circle cx="72" cy="70" r="4" fill="var(--teal-500)" fillOpacity="0.15" stroke="var(--teal-300)" strokeOpacity="0.4" strokeWidth="0.8" />
-                    <circle cx="72" cy="70" r="1.5" fill="var(--teal-300)" />
-                    <text x="82" y="68" fontSize="10" fill="var(--teal-300)" fillOpacity="0.7" fontFamily="ui-monospace, monospace">차량 A</text>
-                    <text x="82" y="79" fontSize="8" fill="rgba(255,255,255,0.35)" fontFamily="ui-monospace, monospace">62.4 km/h</text>
-
-                    {/* B node */}
-                    <circle cx="408" cy="290" r="4" fill="var(--green-300)" fillOpacity="0.15" stroke="var(--green-300)" strokeOpacity="0.4" strokeWidth="0.8" />
-                    <circle cx="408" cy="290" r="1.5" fill="var(--green-300)" />
-                    <text x="372" y="313" fontSize="10" fill="var(--green-300)" fillOpacity="0.7" fontFamily="ui-monospace, monospace">차량 B</text>
-                    <text x="360" y="324" fontSize="8" fill="rgba(255,255,255,0.35)" fontFamily="ui-monospace, monospace">44.8 km/h</text>
-
-                    {/* Impact label */}
-                    <text x="200" y="206" fontSize="9" fill="rgba(255,255,255,0.5)" fontFamily="ui-monospace, monospace">충돌 지점</text>
-                    <text x="200" y="217" fontSize="8" fill="rgba(255,255,255,0.3)" fontFamily="ui-monospace, monospace">14:23:07.412</text>
-                  </svg>
+                  <TrajectoryDiagram />
                 </div>
               </div>
 

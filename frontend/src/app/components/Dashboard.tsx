@@ -383,10 +383,10 @@ export function Dashboard() {
             ].map(({ label, value, Icon, accent }) => (
               <div
                 key={label}
-                className="rounded-lg px-4 py-3 bg-white min-w-[110px]"
+                className="rounded-lg px-4 py-3 bg-white min-w-[110px] transition-shadow"
                 style={{
-                  border: accent ? '1px solid rgba(41,146,131,0.25)' : '1px solid #dae3dd',
-                  boxShadow: accent ? '0 0 0 3px rgba(41,146,131,0.06)' : 'none',
+                  border: accent ? '1px solid rgba(41,146,131,0.25)' : '1px solid var(--neutral-200)',
+                  boxShadow: accent ? 'var(--rs-ring)' : 'var(--rs-shadow-xs)',
                 }}
               >
                 <div className="flex items-center justify-between mb-1.5">
@@ -394,7 +394,7 @@ export function Dashboard() {
                   <Icon className="w-3.5 h-3.5" style={{ color: accent ? '#299283' : '#b8c4be' }} />
                 </div>
                 <div
-                  className="text-[22px] font-bold leading-none font-mono"
+                  className="text-[22px] font-bold leading-none tabular"
                   style={{ color: accent ? '#299283' : '#20543d' }}
                 >
                   {value}
@@ -420,7 +420,7 @@ export function Dashboard() {
 
           <div
             className="bg-white rounded-xl overflow-hidden"
-            style={{ border: '1px solid #dae3dd' }}
+            style={{ border: '1px solid var(--neutral-200)', boxShadow: 'var(--rs-shadow-sm)' }}
           >
             <div
               onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
@@ -452,10 +452,7 @@ export function Dashboard() {
                     파일을 드래그 앤 드롭하거나 아래 버튼을 클릭하세요
                   </p>
                   <label
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-medium text-white cursor-pointer transition-all hover:scale-[1.01]"
-                    style={{ backgroundColor: '#299283' }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#1a5f54')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#299283')}
+                    className="rs-btn-primary inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-medium cursor-pointer"
                   >
                     파일 선택
                     <input
@@ -505,7 +502,7 @@ export function Dashboard() {
           {isLoading ? (
             <div
               className="bg-white rounded-xl flex items-center justify-center h-48"
-              style={{ border: '1px solid #dae3dd' }}
+              style={{ border: '1px solid var(--neutral-200)', boxShadow: 'var(--rs-shadow-sm)' }}
             >
               <div className="flex flex-col items-center gap-3 text-[#8a9590]">
                 <div className="w-7 h-7 border-[3px] border-[#299283] border-t-transparent rounded-full animate-spin" />
