@@ -1,0 +1,21 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0b0e14;
+  font-family: -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif; color: #e6e6e6; }
+#canvas { display: block; width: 100vw; height: 100vh; }
+
+#info { position: fixed; top: 16px; left: 16px; z-index: 10;
+  background: rgba(10,14,20,0.7); padding: 12px 16px; border-radius: 10px;
+  backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,0.08); }
+#info h1 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+#status { font-size: 12px; color: #8fb7ff; }
+
+#panel { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap; justify-content: center;
+  background: rgba(10,14,20,0.78); padding: 10px 18px; border-radius: 12px;
+  backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,0.08); font-size: 13px; }
+#panel button { background: #1c2433; color: #e6e6e6; border: 1px solid rgba(255,255,255,0.12);
+  padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+#panel button:hover { background: #273349; }
+#panel label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+#panel input[type=range] { width: 90px; }
+#frameInfo { font-variant-numeric: tabular-nums; color: #9aa7bd; min-width: 90px; text-align: right; }

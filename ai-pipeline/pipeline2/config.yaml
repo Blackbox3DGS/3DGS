@@ -1,0 +1,105 @@
+# =============================================================================
+# pipeline2 — MOV → LingBot-Map → 3DGS → Web 시각화
+# 모든 튜너블을 한 곳에서 관리. 각 stage는 이 파일의 해당 섹션만 읽는다.
+# =============================================================================
+
+# 실행 환경: stage 별로 다른 conda env 가 필요하다.
+#   - lingbot-map : torch 2.8 + cu128  (Stage 1 전용)
+#   - 3dgs_pipeline: torch 2.4 + open3d (Stage 2/3)
+envs:
+  lingbot: "lingbot-map"
+  recon: "3dgs_pipeline"
+
+paths:
+  # third_party 클론 위치 (절대경로 또는 repo 루트 기준 상대경로)
+  lingbot_repo: "ai-pipeline/third_party/lingbot-map"
+  gaussian_splatting: "ai-pipeline/third_party/gaussian-splatting"
+  # LingBot-Map 체크포인트 (.pt). 비어 있으면 Stage 1 에서 안내 후 중단.
+  lingbot_ckpt: "ai-pipeline/third_party/lingbot-map/weights/lingbot-map-long.pt"
+
+# -----------------------------------------------------------------------------
+# Stage 1 — LingBot-Map inference: video → 포인트클라우드 + 카메라 포즈
+# -----------------------------------------------------------------------------
+stage1_mapping:
+  fps: 10                 # 영상 샘플링 fps (30fps 원본 → 10fps 추출). 이미지폴더 입력 시 무시.
+  mode: "streaming"        # 긴 시퀀스(>320프레임)는 windowed 필수
+  # --- 블랙박스(대시캠) 차체 크롭 ---
+  # 이미지폴더(--image_dir) 입력에만 적용. 화면 하단의 고정 차체(대시보드/와이퍼)는
+  # 시간축 분산이 0에 가까워 포즈/구조 추정을 방해 → 모델이 보기 전에 잘라낸다.
+  # 60_전방 데이터 측정값: 하단 ~27% 가 고정 차체. (--crop_bottom 으로 오버라이드)
+  crop_top: 0.0           # 상단(하늘)에서 잘라낼 비율 (0 = 비활성)
+  crop_bottom: 0.0        # 하단(차체)에서 잘라낼 비율 (대시캠 권장: 0.27)
+  window_size: 128
+  overlap_keyframes: 16
+  keyframe_interval: 2
+  mask_sky: true          # 하늘 포인트 제거
+  max_frames: 0           # 0 = 제한 없음. 디버그 시 작은 값으로(예: 60).
+  num_scale_frames: 8
+  save_depth_maps: true   # TSDF 융합용 depth맵 저장
+  # --- 포인트클라우드 추출 (메모리 제어) ---
+  # 1810프레임 × ~195k px = 3.5억 → stride/percentile/cap 으로 제한
+  points_frame_stride: 1      # 모든 프레임이 포인트 기여 (sparse 입력이라 stride=1로 빈틈 메움)
+  points_pixel_stride: 1      # 모든 픽셀 사용 (덩어리 내부 밀도 ↑)
+  conf_percentile: 50         # 신뢰도 하위 %는 제거 → 상위 50%만 유지 (LingBot 데모 기본값). starburst 노이즈 컷
+  max_points: 12000000        # 최종 랜덤 캡 (이보다 많으면 무작위 추출)
+
+# -----------------------------------------------------------------------------
+# Stage 2 — 전처리: 노이즈 제거 + 지면 기준 축 보정
+# -----------------------------------------------------------------------------
+stage2_preprocess:
+  # Statistical Outlier Removal
+  sor:
+    enabled: true
+    nb_neighbors: 50
+    std_ratio: 2.0
+  # Radius Outlier Removal
+  radius:
+    enabled: true
+    nb_points: 10
+    radius: 0.5
+  # Voxel Downsampling
+  voxel:
+    enabled: true
+    voxel_size: 0.006
+  # 카메라에서 먼 점 제거 (depth 노이즈/하늘 streak 컷 — starburst 방지)
+  crop:
+    enabled: true
+    max_dist_from_camera: 12.0   # 가장 가까운 카메라로부터 이 거리(m) 초과 점 제거
+  # RANSAC 지면 평면 검출 → Y=0 정렬
+  ground:
+    enabled: true
+    distance_threshold: 0.05   # 평면 inlier 거리 임계 (m)
+    ransac_n: 3
+    num_iterations: 2000
+    # 지면 법선 방향을 카메라 위치로 결정(카메라는 지면 위에 있음).
+    # 카메라 포즈가 없으면 +Y 가 위라고 가정.
+    up_from_cameras: true
+
+# -----------------------------------------------------------------------------
+# Stage 3 — 3DGS 학습: ply+poses → COLMAP 포맷 → 학습 → .splat
+# -----------------------------------------------------------------------------
+stage3_train:
+  # mode: "pointcloud" = 학습 없이 포인트클라우드를 바로 splat 으로 (LingBot 데모처럼, 빠름)
+  #       "train"      = COLMAP → 3DGS 학습 → splat
+  mode: "pointcloud"
+  point_radius: 0.01        # pointcloud 모드: 각 점 가우시안 반경(m), voxel_size 근처
+  iterations: 30000
+  sh_degree: 3
+  # dense 초기화: 전처리된 포인트클라우드를 그대로 초기 가우시안으로 사용
+  init_from_dense: true
+  # 학습에 사용할 이미지 해상도 다운스케일 (1 = 원본)
+  resolution: 1
+  data_device: "cuda"
+  gpu: 1                  # nvidia-smi 인덱스 1 = A100 40GB (학습용)
+  # densify
+  densify_until_iter: 15000
+  save_iterations: [7000, 30000]
+
+# -----------------------------------------------------------------------------
+# Stage 4 — 웹 뷰어: .splat + 카메라 경로 애니메이션
+# -----------------------------------------------------------------------------
+stage4_viewer:
+  point_size: 1.0
+  camera_fps: 30          # 경로 애니메이션 재생 속도
+  vehicle_model: "cone"   # 차량 표시: cone | box | none
+  background: "#0b0e14"
