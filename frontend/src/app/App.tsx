@@ -6,6 +6,7 @@ import { SignupScreen } from './components/SignupScreen';
 import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
 import { OAuthCallback } from './pages/OAuthCallback';
+import { Viewer3D } from './components/Viewer3D';
 
 // 로그인한 사용자만 접근 가능한 라우트
 function PrivateRoute({ children }: { children: ReactNode }) {
@@ -85,6 +86,20 @@ export default function App() {
               <PrivateRoute>
                 <Dashboard />
               </PrivateRoute>
+            }
+          />
+
+          {/* 뷰어 로컬 테스트 (백엔드 없이 public/의 정적 파일로 확인) */}
+          <Route
+            path="/viewer-test"
+            element={
+              <div className="min-h-screen bg-[#f3f6f4] p-6">
+                <Viewer3D
+                  jobId="viewer-test"
+                  resultUrl="/sample3.splat"
+                  vehiclesUrl="/sample3_vehicles.json"
+                />
+              </div>
             }
           />
 

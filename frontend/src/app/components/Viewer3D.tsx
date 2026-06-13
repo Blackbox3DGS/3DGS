@@ -47,7 +47,8 @@ const CAMERA_MAX_PHI = Math.PI / 2 - 0.12;
 interface Viewer3DProps {
   jobId: string;
   resultUrl?: string;      // Gaussian Splat (.splat) URL
-  trajectoryUrl?: string;  // 차량 A 궤적 JSON URL
+  trajectoryUrl?: string;  // (legacy) 단일 궤적 JSON URL
+  vehiclesUrl?: string;    // vehicles.json (ego + 동적차량 N대) URL
 }
 
 interface OrbitState {
@@ -439,6 +440,51 @@ async function loadVehicleModel({ THREE, GLTFLoader, url, fallbackColor }: { THR
   }
 }
 
+// ─── vehicles.json 로딩 (ego + 동적차량 N대) ────────────────────────────────
+
+interface VehicleSpec { id: string; cls: string; points: unknown[] }
+
+const VEHICLE_CLASSES = new Set(['car', 'truck', 'bus', 'motorcycle', 'bicycle']);
+const MIN_TRACK_POINTS = 5;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function _toSpecs(list: any[]): VehicleSpec[] {
+  return (Array.isArray(list) ? list : [])
+    .map((v) => ({ id: String(v.id ?? ''), cls: String(v.class ?? v.cls ?? 'car'), points: v.points ?? [] }))
+    .filter((v) => v.id === 'ego' || (VEHICLE_CLASSES.has(v.cls) && (v.points?.length || 0) >= MIN_TRACK_POINTS));
+}
+
+// vehicles.json: { vehicles: [{id, class, points:[[x,y,z,frame_idx],...]}] }.
+// Falls back to a single-trajectory shape, or null → caller uses the demo A/B.
+async function loadVehiclesJson(url: string | undefined): Promise<VehicleSpec[] | null> {
+  if (!url) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await safeFetchJson(url);
+    if (Array.isArray(data?.vehicles)) return _toSpecs(data.vehicles);
+    if (Array.isArray(data)) return [{ id: 'A', cls: 'car', points: data }];
+    if (Array.isArray(data?.points)) return [{ id: 'A', cls: 'car', points: data.points }];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// 차량별 색상(궤적 라인 + fallback 박스): ego는 초록, 나머지는 팔레트 순환.
+const EGO_COLOR = 0x22c55e;
+const DYNAMIC_COLORS = [0x2563eb, 0xef4444, 0xf59e0b, 0xa855f7, 0x06b6d4, 0xec4899, 0x84cc16, 0xf97316];
+
+function _vehicleColor(spec: VehicleSpec, dynamicIndex: number): number {
+  return spec.id === 'ego' ? EGO_COLOR : DYNAMIC_COLORS[dynamicIndex % DYNAMIC_COLORS.length];
+}
+
+// 전체 차량 포인트를 합쳐 카메라 프레이밍에 사용.
+function _mergeAllPoints(specs: VehicleSpec[]): unknown[] {
+  const out: unknown[] = [];
+  specs.forEach((s) => { if (Array.isArray(s.points)) out.push(...s.points); });
+  return out;
+}
+
 // ─── HTML 폴백 (Three.js 로드 전 표시) ───────────────────────────────────────
 
 function HtmlFallbackPreview({ showVehicleA, showVehicleB, showAccidentPoint, showTrajectoryLines }: {
@@ -464,11 +510,9 @@ function HtmlFallbackPreview({ showVehicleA, showVehicleB, showAccidentPoint, sh
 
 interface ViewerPaneProps {
   splatUrl?: string;
-  trajectoryUrlA?: string;
-  trajectoryUrlB?: string;
-  showVehicleA: boolean;
-  showVehicleB: boolean;
-  showAccidentPoint: boolean;
+  vehiclesUrl?: string;
+  showVehicles: boolean;
+  showEgo: boolean;
   showTrajectoryLines: boolean;
   autoPlay: boolean;
   playbackSpeed: number;
@@ -483,8 +527,8 @@ interface ViewerPaneRef {
 
 const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPane(props, ref) {
   const {
-    splatUrl, trajectoryUrlA, trajectoryUrlB,
-    showVehicleA, showVehicleB, showAccidentPoint, showTrajectoryLines,
+    splatUrl, vehiclesUrl,
+    showVehicles, showEgo, showTrajectoryLines,
     autoPlay, playbackSpeed, playbackLoop, onStatusChange, onLoadedMeta,
   } = props;
 
@@ -493,14 +537,14 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const engineRef = useRef<any>(null);
   const orbitStateRef = useRef<OrbitState | null>(null);
-  const uiStateRef = useRef({ showVehicleA, showVehicleB, showAccidentPoint, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop });
+  const uiStateRef = useRef({ showVehicles, showEgo, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop });
 
-  // 샘플 궤적과 데모 차량 모델이 항상 있으므로 항상 3D 엔진 실행
+  // 샘플/실데이터 차량이 항상 있으므로 항상 3D 엔진 실행
   const noAssetsProvided = false;
 
   useEffect(() => {
-    uiStateRef.current = { showVehicleA, showVehicleB, showAccidentPoint, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop };
-  }, [showVehicleA, showVehicleB, showAccidentPoint, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop]);
+    uiStateRef.current = { showVehicles, showEgo, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop };
+  }, [showVehicles, showEgo, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop]);
 
   useEffect(() => {
     if (noAssetsProvided) {
@@ -564,41 +608,47 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
         const markerGroup = new THREE.Group();
         overlayScene.add(trajectoryGroup, vehicleGroup, markerGroup);
 
-        const accidentMarker = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.05, 24), new THREE.MeshStandardMaterial({ color: 0xf59e0b }));
-        markerGroup.add(accidentMarker);
-
-        const [trajResultA, trajResultB, vehicleResultA, vehicleResultB, splatResult] = await Promise.all([
-          loadTrajectoryJson(trajectoryUrlA, sampleTrajectoryA),
-          loadTrajectoryJson(trajectoryUrlB, sampleTrajectoryB),
+        // ── vehicles.json(ego + 동적 N대) + 기본 GLB 2종 + splat 로드 ──────
+        const [vehSpecsRaw, carBaseRes, egoBaseRes, splatResult] = await Promise.all([
+          loadVehiclesJson(vehiclesUrl),
           loadVehicleModel({ THREE, GLTFLoader, url: DEMO_VEHICLE_URL_A, fallbackColor: 0x2563eb }),
-          loadVehicleModel({ THREE, GLTFLoader, url: DEMO_VEHICLE_URL_B, fallbackColor: 0xef4444 }),
+          loadVehicleModel({ THREE, GLTFLoader, url: DEMO_VEHICLE_URL_B, fallbackColor: EGO_COLOR }),
           loadSplatScene({ SPLAT, url: splatUrl, scene: splatScene }),
         ]);
         if (disposed) return;
 
-        const trajectoryA = trajResultA.points;
-        const trajectoryB = trajResultB.points;
-        const accidentPoint = getAccidentPoint(trajectoryA, trajectoryB);
-        accidentMarker.position.set(accidentPoint[0], accidentPoint[1], accidentPoint[2]);
+        // vehicles.json이 없으면 내장 데모 A/B로 폴백.
+        const specs: VehicleSpec[] = vehSpecsRaw && vehSpecsRaw.length
+          ? vehSpecsRaw
+          : [
+              { id: 'A', cls: 'car', points: sampleTrajectoryA },
+              { id: 'B', cls: 'car', points: sampleTrajectoryB },
+            ];
 
-        const framedTarget = getTrajectoryCenter(trajectoryA, trajectoryB);
-        const framedPosition = getFramedCameraPosition(framedTarget, trajectoryA, trajectoryB);
+        const carBase = carBaseRes.model;
+        const egoBase = egoBaseRes.model;
+        let dynIdx = 0;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const vehicles: any[] = specs.map((spec) => {
+          const isEgo = spec.id === 'ego';
+          const color = _vehicleColor(spec, isEgo ? 0 : dynIdx++);
+          const model = (isEgo ? egoBase : carBase).clone(true);
+          model.rotation.y += Math.PI;
+          model.visible = isEgo ? uiStateRef.current.showEgo : uiStateRef.current.showVehicles;
+          vehicleGroup.add(model);
+          const line = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(
+              (spec.points as unknown[]).map((p) => { const c = getPointComponents(p); return new THREE.Vector3(c.x, c.y, c.z); })
+            ),
+            new THREE.LineBasicMaterial({ color })
+          );
+          trajectoryGroup.add(line);
+          return { id: spec.id, isEgo, points: spec.points, model, line };
+        });
 
-        const vehicleA = vehicleResultA.model;
-        const vehicleB = vehicleResultB.model;
-        vehicleA.rotation.y += Math.PI;
-        vehicleB.rotation.y += Math.PI;
-        vehicleGroup.add(vehicleA, vehicleB);
-
-        const lineA = new THREE.Line(
-          new THREE.BufferGeometry().setFromPoints(trajectoryA.map((p: unknown) => { const c = getPointComponents(p); return new THREE.Vector3(c.x, c.y, c.z); })),
-          new THREE.LineBasicMaterial({ color: 0x60a5fa })
-        );
-        const lineB = new THREE.Line(
-          new THREE.BufferGeometry().setFromPoints(trajectoryB.map((p: unknown) => { const c = getPointComponents(p); return new THREE.Vector3(c.x, c.y, c.z); })),
-          new THREE.LineBasicMaterial({ color: 0xf87171 })
-        );
-        trajectoryGroup.add(lineA, lineB);
+        const allPoints = _mergeAllPoints(specs);
+        const framedTarget = getTrajectoryCenter(allPoints, []);
+        const framedPosition = getFramedCameraPosition(framedTarget, allPoints, []);
 
         orbitStateRef.current = computeOrbitStateFromFrame(framedTarget, framedPosition);
         applyOrbitStateToCamera(orbitStateRef.current, splatCamera, splatControls);
@@ -688,18 +738,13 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
           },
           splatRenderer, splatScene, splatCamera, splatControls,
           overlayRenderer, overlayScene, overlayCamera,
-          trajectoryA, trajectoryB, vehicleA, vehicleB, lineA, lineB,
-          accidentMarker, ground, startTimeRef, pausePlayheadRef, lastAutoPlayRef,
+          vehicles, ground, startTimeRef, pausePlayheadRef, lastAutoPlayRef,
           hasSplat: splatResult.ok,
         };
 
-        const closestPair = findClosestPointPair(trajectoryA, trajectoryB);
         onLoadedMeta({
-          trajectoryHasTimeA: trajectoryHasTimestamps(trajectoryA),
-          trajectoryHasTimeB: trajectoryHasTimestamps(trajectoryB),
-          collisionSpeedA: closestPair ? computePointSpeedKmh(trajectoryA, closestPair.indexA) : null,
-          collisionSpeedB: closestPair ? computePointSpeedKmh(trajectoryB, closestPair.indexB) : null,
-          collisionDistanceM: closestPair ? Math.sqrt(closestPair.distanceSq) : null,
+          vehicleCount: vehicles.filter((v: { isEgo: boolean }) => !v.isEgo).length,
+          hasEgo: vehicles.some((v: { isEgo: boolean }) => v.isEgo),
         });
         onStatusChange({ phase: 'ready', message: '뷰어 준비 완료' });
 
@@ -726,27 +771,34 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
           }
 
           const baseElapsed = state.autoPlay ? ((now - engine.startTimeRef.current) / 1000) * state.playbackSpeed : engine.pausePlayheadRef.current;
-          const durationA = Math.max(1e-6, getTrajectoryDuration(engine.trajectoryA));
-          const durationB = Math.max(1e-6, getTrajectoryDuration(engine.trajectoryB));
-          const usesTimeA = trajectoryHasTimestamps(engine.trajectoryA);
-          const usesTimeB = trajectoryHasTimestamps(engine.trajectoryB);
-          const sampleInputA = usesTimeA ? (state.playbackLoop ? baseElapsed % durationA : Math.min(baseElapsed, durationA)) : (state.playbackLoop ? baseElapsed % 1 : Math.min(baseElapsed, 0.999999));
-          const sampleInputB = usesTimeB ? (state.playbackLoop ? baseElapsed % durationB : Math.min(baseElapsed, durationB)) : (state.playbackLoop ? baseElapsed % 1 : Math.min(baseElapsed, 0.999999));
           engine.pausePlayheadRef.current = baseElapsed;
 
-          const sA = samplePath(engine.trajectoryA, sampleInputA);
-          const sB = samplePath(engine.trajectoryB, sampleInputB);
+          // 공통 타임라인: points의 t = frame_idx. ~10fps로 재생.
+          const FRAME_FPS = 10;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let globalDuration = 1;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          engine.vehicles.forEach((v: any) => {
+            const pts = v.points;
+            if (pts && pts.length) {
+              const last = getPointComponents(pts[pts.length - 1]).t;
+              if (last != null) globalDuration = Math.max(globalDuration, last);
+            }
+          });
+          const elapsedFrames = baseElapsed * FRAME_FPS;
+          const sampleInput = state.playbackLoop
+            ? elapsedFrames % globalDuration
+            : Math.min(elapsedFrames, globalDuration);
 
-          engine.vehicleA.visible = state.showVehicleA;
-          engine.vehicleB.visible = state.showVehicleB;
-          engine.lineA.visible = state.showTrajectoryLines;
-          engine.lineB.visible = state.showTrajectoryLines;
-          engine.accidentMarker.visible = state.showAccidentPoint;
-
-          engine.vehicleA.position.set(sA.position[0], sA.position[1], sA.position[2]);
-          engine.vehicleB.position.set(sB.position[0], sB.position[1], sB.position[2]);
-          engine.vehicleA.lookAt(sA.next[0], sA.position[1], sA.next[2]);
-          engine.vehicleB.lookAt(sB.next[0], sB.position[1], sB.next[2]);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          engine.vehicles.forEach((v: any) => {
+            const first = v.points.length ? (getPointComponents(v.points[0]).t ?? 0) : 0;
+            const s = samplePath(v.points, sampleInput - first);
+            v.model.visible = v.isEgo ? state.showEgo : state.showVehicles;
+            v.line.visible = state.showTrajectoryLines;
+            v.model.position.set(s.position[0], s.position[1], s.position[2]);
+            v.model.lookAt(s.next[0], s.position[1], s.next[2]);
+          });
 
           if (engine.hasSplat) engine.splatRenderer.render(engine.splatScene, engine.splatCamera);
           engine.overlayRenderer.render(engine.overlayScene, engine.overlayCamera);
@@ -779,14 +831,12 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
           }
           engine.splatControls?.dispose?.();
           engine.overlayRenderer?.dispose?.();
-          disposeThreeObject(engine.vehicleA);
-          disposeThreeObject(engine.vehicleB);
-          engine.lineA?.geometry?.dispose?.();
-          engine.lineA?.material?.dispose?.();
-          engine.lineB?.geometry?.dispose?.();
-          engine.lineB?.material?.dispose?.();
-          engine.accidentMarker?.geometry?.dispose?.();
-          engine.accidentMarker?.material?.dispose?.();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (engine.vehicles || []).forEach((v: any) => {
+            disposeThreeObject(v.model);
+            v.line?.geometry?.dispose?.();
+            v.line?.material?.dispose?.();
+          });
           engine.ground?.geometry?.dispose?.();
           engine.ground?.material?.dispose?.();
         } catch (_) {}
@@ -795,7 +845,7 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
       orbitStateRef.current = null;
       if (localRendererCanvas?.parentNode) localRendererCanvas.parentNode.removeChild(localRendererCanvas);
     };
-  }, [splatUrl, trajectoryUrlA, trajectoryUrlB, noAssetsProvided, onStatusChange, onLoadedMeta]);
+  }, [splatUrl, vehiclesUrl, noAssetsProvided, onStatusChange, onLoadedMeta]);
 
   useImperativeHandle(ref, () => ({
     focusScene: () => engineRef.current?.focusScene?.(),
@@ -808,8 +858,8 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
       )}
       {noAssetsProvided && (
         <HtmlFallbackPreview
-          showVehicleA={showVehicleA} showVehicleB={showVehicleB}
-          showAccidentPoint={showAccidentPoint} showTrajectoryLines={showTrajectoryLines}
+          showVehicleA={showVehicles} showVehicleB={showEgo}
+          showAccidentPoint={false} showTrajectoryLines={showTrajectoryLines}
         />
       )}
       <div className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-xl bg-black/45 px-3 py-2 text-xs text-white backdrop-blur">
@@ -821,15 +871,17 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
 
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────────────────
 
-export function Viewer3D({ jobId, resultUrl, trajectoryUrl }: Viewer3DProps) {
+export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl }: Viewer3DProps) {
   const [status, setStatus] = useState({ phase: 'idle', message: '' });
-  const [showVehicleA, setShowVehicleA] = useState(true);
-  const [showVehicleB, setShowVehicleB] = useState(true);
+  const [showVehicles, setShowVehicles] = useState(true);
+  const [showEgo, setShowEgo] = useState(true);
   const [showTrajectoryLines, setShowTrajectoryLines] = useState(true);
-  const [showAccidentPoint, setShowAccidentPoint] = useState(true);
   const [autoPlay, setAutoPlay] = useState(true);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [loadedMeta, setLoadedMeta] = useState<Record<string, unknown>>({});
+
+  // vehicles.json 우선, 없으면 legacy 단일 궤적 URL을 차량으로 사용.
+  const resolvedVehiclesUrl = vehiclesUrl ?? trajectoryUrl;
 
   const viewerPaneRef = useRef<ViewerPaneRef>(null);
   const handleLoadedMeta = useCallback((meta: Record<string, unknown>) => setLoadedMeta(meta || {}), []);
@@ -862,10 +914,9 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl }: Viewer3DProps) {
               <p className="text-sm font-semibold text-[#5a665e] mb-3">표시 옵션</p>
               <div className="space-y-2">
                 {[
-                  { label: '차량 A', value: showVehicleA, onChange: setShowVehicleA },
-                  { label: '차량 B', value: showVehicleB, onChange: setShowVehicleB },
+                  { label: '자기차량(블랙박스)', value: showEgo, onChange: setShowEgo },
+                  { label: '동적차량', value: showVehicles, onChange: setShowVehicles },
                   { label: '궤적 라인', value: showTrajectoryLines, onChange: setShowTrajectoryLines },
-                  { label: '사고 지점', value: showAccidentPoint, onChange: setShowAccidentPoint },
                 ].map(({ label, value, onChange }) => (
                   <label key={label} className="flex items-center justify-between rounded-lg bg-[#f7f9f8] px-3 py-2 text-sm cursor-pointer">
                     <span className="text-[#5a665e]">{label}</span>
@@ -906,17 +957,17 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl }: Viewer3DProps) {
               </div>
             </div>
 
-            {/* 충돌 정보 */}
+            {/* 장면 정보 */}
             <div className="rounded-xl border border-[#dae3dd] p-4">
-              <p className="text-sm font-semibold text-[#5a665e] mb-3">충돌 순간 속도</p>
+              <p className="text-sm font-semibold text-[#5a665e] mb-3">장면 정보</p>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-[#8a9590]">차량 A</span>
-                  <span className="font-semibold text-[#299283]">{formatSpeedKmh(loadedMeta.collisionSpeedA as number)}</span>
+                  <span className="text-[#8a9590]">자기차량</span>
+                  <span className="font-semibold text-[#299283]">{loadedMeta.hasEgo ? '있음' : '없음'}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-[#8a9590]">차량 B</span>
-                  <span className="font-semibold text-red-500">{formatSpeedKmh(loadedMeta.collisionSpeedB as number)}</span>
+                  <span className="text-[#8a9590]">동적차량 수</span>
+                  <span className="font-semibold text-[#5a665e]">{(loadedMeta.vehicleCount as number) ?? 0}대</span>
                 </div>
               </div>
             </div>
@@ -924,15 +975,13 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl }: Viewer3DProps) {
 
           {/* 3D 뷰 */}
           <ViewerPane
-            key={`${resultUrl ?? ''}-${trajectoryUrl ?? ''}`}
+            key={`${resultUrl ?? ''}-${resolvedVehiclesUrl ?? ''}`}
             ref={viewerPaneRef}
             splatUrl={resultUrl}
-            trajectoryUrlA={trajectoryUrl}
-            trajectoryUrlB={undefined}
-            showVehicleA={showVehicleA}
-            showVehicleB={showVehicleB}
+            vehiclesUrl={resolvedVehiclesUrl}
+            showVehicles={showVehicles}
+            showEgo={showEgo}
             showTrajectoryLines={showTrajectoryLines}
-            showAccidentPoint={showAccidentPoint}
             autoPlay={autoPlay}
             playbackSpeed={playbackSpeed}
             playbackLoop={true}
