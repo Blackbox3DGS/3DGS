@@ -55,13 +55,18 @@ def _run_impl(context):
     model_dir = workspace / "model"
 
     # ── 1. Prepare COLMAP-compatible directory structure ───────────────
-    logger.info("Stage 10: Preparing scene directory...")
+    # Cap the 3DGS init cloud so a >10M-point dense fused cloud doesn't make
+    # training start with that many Gaussians and OOM. GS_MAX_INIT_POINTS env
+    # overrides (default 1,000,000; lower it on tighter GPUs).
+    max_init_points = int(os.environ.get("GS_MAX_INIT_POINTS", "1000000"))
+    logger.info("Stage 10: Preparing scene directory (max_init_points=%d)...", max_init_points)
     prepare_scene_dir(
         scene_dir=scene_dir,
         images_dir=images_dir,
         masks_dir=masks_dir,
         colmap_model_dir=colmap_model_dir,
         filtered_ply=filtered_ply,
+        max_init_points=max_init_points,
     )
 
     model_dir.mkdir(parents=True, exist_ok=True)

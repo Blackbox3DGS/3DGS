@@ -167,12 +167,18 @@ def _filter_images_bin(src: Path, dst: Path, keep_names: set[str]):
     logger.info("  images.bin: %d/%d frames kept", len(kept_entries), num_images)
 
 
-def _convert_ply_for_gs(src: Path, dst: Path):
+def _convert_ply_for_gs(src: Path, dst: Path, max_points: int | None = None):
     """Convert Open3D PLY to gaussian-splatting compatible format.
 
     gaussian-splatting's fetchPly() requires: float x,y,z + float nx,ny,nz + uchar red,green,blue.
     Open3D writes: double x,y,z + uchar red,green,blue (no normals).
     We use plyfile's storePly convention for compatibility.
+
+    When *max_points* is set and the cloud exceeds it, the init cloud is randomly
+    subsampled to that size. The dense fused cloud from Stage 07/08 can hold
+    >10M points, which makes 3DGS start with that many Gaussians and OOM on a
+    24GB GPU; standard 3DGS inits with ~1e5–5e5. Densification still grows the
+    model during training, so this only caps the *starting* count.
     """
     import open3d as o3d
 
@@ -183,8 +189,14 @@ def _convert_ply_for_gs(src: Path, dst: Path):
     # Convert colors to uint8
     rgb = (colors * 255).clip(0, 255).astype(np.uint8) if len(colors) > 0 else np.zeros((len(xyz), 3), dtype=np.uint8)
 
-    # Zero normals
-    normals = np.zeros_like(xyz, dtype=np.float32)
+    # Cap the init cloud (random subsample) to keep the 3DGS starting Gaussian
+    # count within GPU memory. Same RNG-seeded pattern as 04g's sparse cap.
+    if max_points is not None and len(xyz) > max_points:
+        n_before = len(xyz)
+        idx = np.random.default_rng(0).choice(n_before, size=max_points, replace=False)
+        xyz = xyz[idx]
+        rgb = rgb[idx]  # rgb is always original-length (from colors or zeros)
+        logger.info("  Init cloud capped for 3DGS: %d -> %d points", n_before, max_points)
 
     n = len(xyz)
     logger.info("  Converting PLY for gaussian-splatting: %d points", n)
@@ -227,6 +239,7 @@ def prepare_scene_dir(
     masks_dir: Path,
     colmap_model_dir: Path,
     filtered_ply: Path,
+    max_init_points: int | None = None,
 ) -> Path:
     """Create directory structure expected by gaussian-splatting.
 
@@ -286,7 +299,7 @@ def prepare_scene_dir(
     # gaussian-splatting's fetchPly() expects: float x,y,z + uchar red,green,blue + float nx,ny,nz
     # Our Open3D PLY has double x,y,z + uchar red,green,blue (no normals).
     dst_ply = sparse_dir / "points3D.ply"
-    _convert_ply_for_gs(filtered_ply, dst_ply)
+    _convert_ply_for_gs(filtered_ply, dst_ply, max_points=max_init_points)
     logger.info("  points3D.ply <- %s (converted for gaussian-splatting)", filtered_ply)
 
     # Remove points3D.bin/.txt if present (force PLY loading)
