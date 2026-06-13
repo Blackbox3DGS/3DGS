@@ -322,7 +322,9 @@ def fit_ground_plane(
     inlier_pts = points[inlier_mask]
     if len(inlier_pts) >= 3:
         centroid = inlier_pts.mean(axis=0)
-        _, _, Vt = np.linalg.svd(inlier_pts - centroid)
+        # full_matrices=False (economy SVD): we only need Vt (3x3); the default
+        # full U is (N, N) — at N=50k that's ~20 GB and triggers a RAM OOM kill.
+        _, _, Vt = np.linalg.svd(inlier_pts - centroid, full_matrices=False)
         best_normal = Vt[-1]
         best_d = -best_normal @ centroid
 
