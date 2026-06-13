@@ -162,7 +162,22 @@ def compute_align_transform(
         median_height, target_height, height_ratio,
     )
 
-    # 7. Compose final 4x4 transform.
+    # 6b. Metric rescale. LingBot world is up-to-scale; recover metric scale from
+    # the camera-height prior, but ONLY when the scene is clearly non-metric
+    # (ratio far from 1) so we don't distort already-metric driving footage.
+    # The caller applies `scale` uniformly about the ground (z=0) to camera
+    # centres, world points, and depth — keeping the ground plane fixed.
+    scale = 1.0
+    if abs(median_height) > 1e-6 and (height_ratio < 0.5 or height_ratio > 2.0):
+        scale = target_height / abs(median_height)
+        logger.info(
+            "Non-metric LingBot world (ratio=%.3f) -> metric scale = %.4f", height_ratio, scale)
+    else:
+        logger.info("Scene scale within [0.5, 2.0]x prior -> no metric rescale (scale=1.0)")
+
+    # 7. Compose final 4x4 transform (rigid — rotation + translation only; the
+    # metric scale is returned separately so it can be applied without
+    # corrupting the orthonormal rotation block of c2w extrinsics).
     T = np.eye(4, dtype=np.float64)
     T[:3, :3] = R
     T[:3, 3] = t
@@ -172,6 +187,8 @@ def compute_align_transform(
         "plane_d_pre": float(d),
         "median_cam_height_post": median_height,
         "target_cam_height": float(target_height),
+        "scale": float(scale),
+        "median_cam_height_post_scaled": float(median_height * scale),
         "num_candidates": int(len(candidates)),
     }
     return T, info

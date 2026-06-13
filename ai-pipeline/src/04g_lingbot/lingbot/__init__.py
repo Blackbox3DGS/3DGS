@@ -259,10 +259,21 @@ def _run_impl(context: dict) -> dict:
         # Apply to everything that lives in world frame.
         poses_4x4 = apply_to_extrinsics(T_align, poses_4x4)
         wp = apply_to_points(T_align, wp)
-        # Depth maps live in camera frame → unchanged.
+        # Depth maps live in camera frame; the metric scale below also scales them.
     except Exception as e:  # pragma: no cover  — never let alignment crash the stage
         logger.warning("Ground alignment failed (%s); using raw LingBot world.", e)
         T_align = np.eye(4)
+
+    # ── Metric rescale (Gap 6): LingBot world can be non-metric. Apply the
+    # camera-height-prior scale uniformly about the ground (z=0) to camera
+    # centres, world points, and depth so downstream metric thresholds
+    # (Stage 07 MIN/MAX_DEPTH, VOXEL_SIZE; Stage 09 velocities) are correct. ─
+    metric_scale = float(align_info.get("scale", 1.0)) if align_info else 1.0
+    if abs(metric_scale - 1.0) > 1e-6:
+        logger.info("Applying metric scale %.4f to poses/world_points/depth", metric_scale)
+        poses_4x4[:, :3, 3] *= metric_scale   # camera centres (rotation block intact)
+        wp = wp * metric_scale                # world points (ground at z=0 stays fixed)
+        depth_proc = depth_proc * metric_scale  # camera-frame depth scales the same
 
     poses_4x4 = poses_4x4.astype(np.float32)
     poses_path = workspace / "poses.npy"
