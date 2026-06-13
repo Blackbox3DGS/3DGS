@@ -312,10 +312,14 @@ def _run_impl(context: dict) -> dict:
         }, f, indent=2)
 
     # ── Depth maps: save processed-resolution + resized-to-original ──────
+    # Also persist per-pixel confidence (resized to original) so Stage 07 can
+    # filter low-confidence points the way LingBot's demo does (conf_threshold);
+    # without it the dense cloud fans out with unreliable far/sky points.
     depth_dir = workspace / "depth_maps"
     scaled_dir = workspace / "scaled_depth_maps"
+    conf_dir = workspace / "scaled_conf_maps"
     vis_dir = workspace / "scaled_depth_vis"
-    for d in (depth_dir, scaled_dir, vis_dir):
+    for d in (depth_dir, scaled_dir, conf_dir, vis_dir):
         d.mkdir(parents=True, exist_ok=True)
 
     MAX_VIS_DEPTH = 50.0
@@ -326,12 +330,17 @@ def _run_impl(context: dict) -> dict:
         np.save(depth_dir / f"{stem}.npy", d_proc)
         np.save(scaled_dir / f"{stem}.npy", d_orig)
 
+        # Confidence resized to original (raw model confidence, pre dynamic-mask).
+        c_orig = _resize_depth_to_original(
+            wp_conf[i].astype(np.float32), (H_orig, W_orig)).astype(np.float32)
+        np.save(conf_dir / f"{stem}.npy", c_orig)
+
         # Top-of-funnel vis (turbo colourmap, 0-50 m).
         vis_u8 = np.clip(d_orig / MAX_VIS_DEPTH * 255, 0, 255).astype(np.uint8)
         cv2.imwrite(str(vis_dir / f"{stem}.png"),
                     cv2.applyColorMap(vis_u8, cv2.COLORMAP_TURBO))
 
-    logger.info("Saved %d depth maps (proc %dx%d) and %d scaled (%dx%d).",
+    logger.info("Saved %d depth maps (proc %dx%d) and %d scaled (%dx%d) + conf maps.",
                 S, W_p, H_p, S, W_orig, H_orig)
 
     # ── Sparse PC for 3DGS init + Stage 07 viz reference ────────────────
@@ -372,6 +381,7 @@ def _run_impl(context: dict) -> dict:
         "colmap_model_dir":    str(sparse_model_dir),
         "depth_maps":          str(depth_dir),
         "scaled_depth_maps":   str(scaled_dir),
+        "scaled_conf_maps":    str(conf_dir),
         "scaled_depth_vis":    str(vis_dir),
     })
 

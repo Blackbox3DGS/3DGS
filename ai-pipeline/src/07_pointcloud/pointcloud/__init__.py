@@ -7,6 +7,7 @@ dense point cloud saved as PLY.
 
 import json
 import logging
+import os
 import traceback
 from pathlib import Path
 
@@ -71,6 +72,8 @@ def _run_impl(context):
     images_dir = Path(context["artifacts"]["images_colmap"])
     masks_artifact = context["artifacts"].get("segmentation_masks")
     masks_dir = Path(masks_artifact) if masks_artifact else None
+    conf_artifact = context["artifacts"].get("scaled_conf_maps")
+    conf_dir = Path(conf_artifact) if conf_artifact else None
 
     out_root = Path(context["out_root"])
     workspace = out_root / "07_pointcloud"
@@ -95,12 +98,15 @@ def _run_impl(context):
     # ── backproject each frame ─────────────────────────────────────────
     STEP = 2          # pixel subsampling stride
     MIN_DEPTH = 0.5   # metres
-    MAX_DEPTH = 150.0  # metres
+    # Env-tunable: cut far/low-confidence points that fan out (LingBot-style).
+    MAX_DEPTH = float(os.environ.get("PC_MAX_DEPTH", "150.0"))     # metres
+    CONF_THRESHOLD = float(os.environ.get("PC_CONF_THRESHOLD", "1.5"))  # LingBot demo default
 
     all_points = []
     all_colors = []
     total_pts = 0
     masked_frames = 0
+    conf_frames = 0
 
     for idx, fname in enumerate(reg_frames):
         stem = Path(fname).stem
@@ -126,12 +132,25 @@ def _run_impl(context):
             if mask is not None:
                 masked_frames += 1
 
+        # Load LingBot confidence map (if Stage 04g produced it) to drop
+        # unreliable far/sky points — the main cause of the fanned-out cloud.
+        conf = None
+        if conf_dir is not None:
+            cpath = conf_dir / f"{stem}.npy"
+            if cpath.exists():
+                conf = np.load(cpath)
+                if conf.shape != depth_map.shape:
+                    conf = cv2.resize(conf, (depth_map.shape[1], depth_map.shape[0]),
+                                      interpolation=cv2.INTER_LINEAR)
+                conf_frames += 1
+
         pts, colors = backproject_frame(
             depth_map, poses[idx],
             fx, fy, cx, cy,
             image=image, step=STEP,
             min_depth=MIN_DEPTH, max_depth=MAX_DEPTH,
             mask=mask,
+            conf=conf, conf_threshold=CONF_THRESHOLD,
         )
 
         if len(pts) > 0:
@@ -149,6 +168,11 @@ def _run_impl(context):
                     masked_frames, len(reg_frames), masks_dir)
     else:
         logger.info("No segmentation_masks artifact — dense PC keeps dynamic objects.")
+    if conf_dir is not None:
+        logger.info("Confidence filter (conf>%.2f) applied to %d/%d frames (max_depth=%.0fm)",
+                    CONF_THRESHOLD, conf_frames, len(reg_frames), MAX_DEPTH)
+    else:
+        logger.info("No scaled_conf_maps artifact — dense PC keeps low-confidence points.")
 
     if not all_points:
         raise RuntimeError("No points generated — check depth maps and poses.")

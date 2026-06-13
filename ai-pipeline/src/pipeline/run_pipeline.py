@@ -154,6 +154,7 @@ _ARTIFACT_PATHS = {
     "depth_maps":          ["04g_lingbot/depth_maps", "05_depth/depth_maps"],
     "depth_vis":           ["05_depth/depth_vis"],
     "scaled_depth_maps":   ["04g_lingbot/scaled_depth_maps", "06_scale/scaled_depth_maps"],
+    "scaled_conf_maps":    ["04g_lingbot/scaled_conf_maps"],
     "scaled_depth_vis":    ["04g_lingbot/scaled_depth_vis", "06_scale/scaled_depth_vis"],
     "dense_pointcloud":    ["07_pointcloud/dense.ply"],
     "dense_topdown":       ["07_pointcloud/dense_topdown.png"],

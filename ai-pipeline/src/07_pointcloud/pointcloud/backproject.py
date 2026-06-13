@@ -12,6 +12,8 @@ def backproject_frame(
     min_depth: float = 0.5,
     max_depth: float = 150.0,
     mask: np.ndarray | None = None,
+    conf: np.ndarray | None = None,
+    conf_threshold: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray | None]:
     """Backproject all valid pixels in a depth map to 3D world coordinates.
 
@@ -27,6 +29,11 @@ def backproject_frame(
                 dynamic). Dynamic pixels are excluded so moving vehicles do not
                 seed ghost points / floaters in the dense cloud. Must match the
                 depth_map resolution. None keeps every pixel.
+    conf      : (H, W) per-pixel confidence (LingBot). When given, pixels with
+                conf <= conf_threshold are dropped — this is what LingBot's demo
+                does (conf_threshold ~1.5) to cut unreliable far/sky points that
+                otherwise fan out. Must match depth_map resolution.
+    conf_threshold : keep pixels with conf > this (default 0 = keep all).
 
     Returns
     -------
@@ -45,6 +52,8 @@ def backproject_frame(
     valid = (depths > min_depth) & (depths < max_depth) & np.isfinite(depths)
     if mask is not None:
         valid = valid & (mask[vv, uu] == 0)  # drop dynamic pixels
+    if conf is not None and conf_threshold > 0:
+        valid = valid & (conf[vv, uu] > conf_threshold)  # drop low-confidence
     uu = uu[valid]
     vv = vv[valid]
     depths = depths[valid]
