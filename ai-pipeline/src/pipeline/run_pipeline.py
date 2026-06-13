@@ -27,6 +27,11 @@ DEFAULT_STEPS = [
 ]
 
 # LingBot-MAP collapses Stage 04+05+06 into one feed-forward inference pass.
+# For forward-driving monocular footage, 3DGS (Stage 10) produces spiky blobs
+# because poses lack the accuracy GS needs at low parallax — so the default
+# LingBot path renders the (pose-noise-robust) fused point cloud directly via
+# 10p_pcsplat instead of 10_3dgs + 11_format. The GS steps remain registered
+# in STAGE_MODULES for explicit --steps use.
 LINGBOT_STEPS = [
     "02_ingest",
     "03_seg",
@@ -34,8 +39,7 @@ LINGBOT_STEPS = [
     "07_pointcloud",
     "09_trajectory",
     "08_filtering",
-    "10_3dgs",
-    "11_format",
+    "10p_pcsplat",
     "12_viewer",
 ]
 
@@ -51,6 +55,7 @@ STAGE_MODULES = {
     "08_filtering": "08_filtering.filtering",
     "09_trajectory": "09_trajectory.trajectory",
     "10_3dgs": "10_3dgs.gs",
+    "10p_pcsplat": "10p_pcsplat.pcsplat",
     "11_format": "11_format.format_step",
     "12_viewer": "12_viewer.viewer",
 }
@@ -159,7 +164,7 @@ _ARTIFACT_PATHS = {
     "output_ply":          ["10_3dgs/model/point_cloud/iteration_30000/point_cloud.ply"],
     "gs_model_dir":        ["10_3dgs/model"],
     "output_topdown":      ["10_3dgs/output_topdown.png"],
-    "output_splat":        ["11_format/output.splat"],
+    "output_splat":        ["10p_pcsplat/output.splat", "11_format/output.splat"],
 }
 
 
