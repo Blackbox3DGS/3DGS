@@ -11,6 +11,7 @@ def backproject_frame(
     step: int = 2,
     min_depth: float = 0.5,
     max_depth: float = 150.0,
+    mask: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray | None]:
     """Backproject all valid pixels in a depth map to 3D world coordinates.
 
@@ -22,6 +23,10 @@ def backproject_frame(
     step      : pixel subsampling stride (1 = every pixel, 2 = every other).
     min_depth : discard pixels with depth below this (metres).
     max_depth : discard pixels with depth above this (metres).
+    mask      : (H, W) dynamic-object mask (Stage 03 convention: nonzero =
+                dynamic). Dynamic pixels are excluded so moving vehicles do not
+                seed ghost points / floaters in the dense cloud. Must match the
+                depth_map resolution. None keeps every pixel.
 
     Returns
     -------
@@ -38,6 +43,8 @@ def backproject_frame(
 
     depths = depth_map[vv, uu]
     valid = (depths > min_depth) & (depths < max_depth) & np.isfinite(depths)
+    if mask is not None:
+        valid = valid & (mask[vv, uu] == 0)  # drop dynamic pixels
     uu = uu[valid]
     vv = vv[valid]
     depths = depths[valid]

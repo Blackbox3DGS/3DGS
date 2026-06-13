@@ -41,6 +41,11 @@ from .colmap_writer import (
     write_points3D_txt,
     write_sparse_ply,
 )
+from .ground_align import (
+    apply_to_extrinsics,
+    apply_to_points,
+    compute_align_transform,
+)
 from .inference import run_inference
 
 logger = logging.getLogger(__name__)
@@ -121,6 +126,42 @@ def _rescale_intrinsic(intrinsic_proc: np.ndarray,
     return K
 
 
+def _zero_conf_on_dynamic(points_conf: np.ndarray, masks_dir: Path | None,
+                          frame_names: list[str],
+                          proc_hw: tuple[int, int]) -> int:
+    """Zero out confidence on Stage 03 dynamic pixels (in place).
+
+    LingBot world points live at the processed (H_p, W_p) resolution while the
+    masks are at original resolution, so each mask is resized down with
+    nearest-neighbour. Setting confidence to 0 makes `_build_sparse_pointcloud`
+    drop those pixels (conf <= threshold), keeping moving-vehicle ghosts out of
+    the sparse init. Returns the number of pixels zeroed.
+    """
+    if masks_dir is None or not masks_dir.exists():
+        return 0
+    H_p, W_p = proc_hw
+    zeroed = 0
+    for i, name in enumerate(frame_names):
+        stem = Path(name).stem
+        mask_path = None
+        for ext in (".png", ".jpg"):
+            cand = masks_dir / f"{stem}{ext}"
+            if cand.exists():
+                mask_path = cand
+                break
+        if mask_path is None:
+            continue
+        m = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+        if m is None:
+            continue
+        if m.shape[0] != H_p or m.shape[1] != W_p:
+            m = cv2.resize(m, (W_p, H_p), interpolation=cv2.INTER_NEAREST)
+        dyn = m > 0
+        points_conf[i][dyn] = 0.0
+        zeroed += int(dyn.sum())
+    return zeroed
+
+
 def _subsample_for_3dgs(images_dir: Path, registered_frames: list[str],
                         out_dir: Path, every_n: int = 2) -> int:
     """Mirror Stage 04's `_subsample_for_3dgs`."""
@@ -197,10 +238,33 @@ def _run_impl(context: dict) -> dict:
             f"Frame count mismatch: {total} input vs {S} LingBot outputs."
         )
 
-    # ── poses.npy (M, 4, 4) c2w ──────────────────────────────────────────
-    poses_4x4 = np.zeros((S, 4, 4), dtype=np.float32)
+    # ── Build 4x4 c2w from 3x4 ───────────────────────────────────────────
+    poses_4x4 = np.zeros((S, 4, 4), dtype=np.float64)
     poses_4x4[:, :3, :4] = extrinsics_c2w
     poses_4x4[:, 3, 3] = 1.0
+
+    # ── Phase D-pre: gravity-align the world frame ───────────────────────
+    # Stage 10 (3DGS) and Stage 12 (viewer w/ car meshes) need ground at z=0.
+    # LingBot's predicted world is roughly aligned but not exact; RANSAC-fit
+    # the dominant plane and rotate so its normal becomes +z.
+    align_info = None
+    try:
+        input_type = context.get("input_type", "video")
+        T_align, align_info = compute_align_transform(
+            wp, wp_conf, poses_4x4, input_type=input_type,
+        )
+        logger.info("Ground alignment: %s", align_info)
+        np.save(workspace / "align_transform.npy", T_align)
+
+        # Apply to everything that lives in world frame.
+        poses_4x4 = apply_to_extrinsics(T_align, poses_4x4)
+        wp = apply_to_points(T_align, wp)
+        # Depth maps live in camera frame → unchanged.
+    except Exception as e:  # pragma: no cover  — never let alignment crash the stage
+        logger.warning("Ground alignment failed (%s); using raw LingBot world.", e)
+        T_align = np.eye(4)
+
+    poses_4x4 = poses_4x4.astype(np.float32)
     poses_path = workspace / "poses.npy"
     np.save(poses_path, poses_4x4)
     logger.info("Saved poses: %s -> %s", poses_4x4.shape, poses_path)
@@ -260,6 +324,13 @@ def _run_impl(context: dict) -> dict:
                 S, W_p, H_p, S, W_orig, H_orig)
 
     # ── Sparse PC for 3DGS init + Stage 07 viz reference ────────────────
+    # Drop dynamic-object pixels (Stage 03 masks) so moving vehicles don't seed
+    # ghost points in the sparse init. Stage 07 masks the dense PC the same way.
+    masks_artifact = context["artifacts"].get("segmentation_masks")
+    masks_dir = Path(masks_artifact) if masks_artifact else None
+    n_zeroed = _zero_conf_on_dynamic(wp_conf, masks_dir, frame_names, (H_p, W_p))
+    logger.info("Dynamic-masked sparse init: zeroed %d pixels (masks=%s)",
+                n_zeroed, masks_dir)
     xyz, rgb = _build_sparse_pointcloud(wp, wp_conf, imgs_proc)
     sparse_ply_path = workspace / "sparse.ply"
     write_sparse_ply(sparse_ply_path, xyz, rgb)

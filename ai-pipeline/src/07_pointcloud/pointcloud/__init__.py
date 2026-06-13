@@ -21,6 +21,27 @@ from .backproject import backproject_frame
 logger = logging.getLogger(__name__)
 
 
+def _load_dynamic_mask(masks_dir: Path, stem: str,
+                       depth_hw: tuple[int, int]) -> np.ndarray | None:
+    """Load a Stage 03 dynamic mask (white=255=dynamic) for one frame.
+
+    Returns a uint8 (H, W) array matching *depth_hw* (nonzero = dynamic), or
+    None when no mask file exists. Resized with nearest-neighbour so the binary
+    labels stay crisp.
+    """
+    for ext in (".png", ".jpg"):
+        p = masks_dir / f"{stem}{ext}"
+        if p.exists():
+            m = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
+            if m is None:
+                return None
+            H, W = depth_hw
+            if m.shape[0] != H or m.shape[1] != W:
+                m = cv2.resize(m, (W, H), interpolation=cv2.INTER_NEAREST)
+            return m
+    return None
+
+
 def run(context):
     """Stage 07 entry point.
 
@@ -48,6 +69,8 @@ def _run_impl(context):
     intrinsics_path = Path(context["artifacts"]["intrinsics"])
     reg_path = Path(context["artifacts"]["registered_frames"])
     images_dir = Path(context["artifacts"]["images_colmap"])
+    masks_artifact = context["artifacts"].get("segmentation_masks")
+    masks_dir = Path(masks_artifact) if masks_artifact else None
 
     out_root = Path(context["out_root"])
     workspace = out_root / "07_pointcloud"
@@ -77,6 +100,7 @@ def _run_impl(context):
     all_points = []
     all_colors = []
     total_pts = 0
+    masked_frames = 0
 
     for idx, fname in enumerate(reg_frames):
         stem = Path(fname).stem
@@ -94,11 +118,20 @@ def _run_impl(context):
             if bgr is not None:
                 image = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
+        # Load Stage 03 dynamic mask (white=dynamic) so moving vehicles don't
+        # seed ghost points in the dense cloud. Resize to depth resolution.
+        mask = None
+        if masks_dir is not None:
+            mask = _load_dynamic_mask(masks_dir, stem, depth_map.shape)
+            if mask is not None:
+                masked_frames += 1
+
         pts, colors = backproject_frame(
             depth_map, poses[idx],
             fx, fy, cx, cy,
             image=image, step=STEP,
             min_depth=MIN_DEPTH, max_depth=MAX_DEPTH,
+            mask=mask,
         )
 
         if len(pts) > 0:
@@ -110,6 +143,12 @@ def _run_impl(context):
         if (idx + 1) % 50 == 0 or (idx + 1) == len(reg_frames):
             logger.info("  backprojected %d / %d frames  (%d points so far)",
                         idx + 1, len(reg_frames), total_pts)
+
+    if masks_dir is not None:
+        logger.info("Dynamic masks applied to %d/%d frames (from %s)",
+                    masked_frames, len(reg_frames), masks_dir)
+    else:
+        logger.info("No segmentation_masks artifact — dense PC keeps dynamic objects.")
 
     if not all_points:
         raise RuntimeError("No points generated — check depth maps and poses.")
