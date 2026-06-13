@@ -5,6 +5,7 @@ exclusion to suppress floaters on dynamic objects (vehicles, pedestrians).
 """
 
 import logging
+import os
 import subprocess
 import sys
 import traceback
@@ -66,8 +67,11 @@ def _run_impl(context):
     model_dir.mkdir(parents=True, exist_ok=True)
 
     # ── 2. Run 3DGS training ──────────────────────────────────────────
-    ITERATIONS = 30_000
-    SAVE_ITERATIONS = [7_000, 30_000]
+    # GS_ITERATIONS env overrides the default (e.g. GS_ITERATIONS=3000 for a
+    # fast end-to-end smoke test). We always checkpoint at the final iteration
+    # so output_ply (iteration_<ITERATIONS>/point_cloud.ply) exists.
+    ITERATIONS = int(os.environ.get("GS_ITERATIONS", "30000"))
+    SAVE_ITERATIONS = sorted({min(7_000, ITERATIONS), ITERATIONS})
 
     train_script = Path(__file__).parent / "train_masked.py"
 
