@@ -7,6 +7,7 @@ import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
 import { OAuthCallback } from './pages/OAuthCallback';
 import { Viewer3D } from './components/Viewer3D';
+import { ClipBrowser } from './components/ClipBrowser';
 
 // 로그인한 사용자만 접근 가능한 라우트
 function PrivateRoute({ children }: { children: ReactNode }) {
@@ -104,6 +105,9 @@ export default function App() {
               </div>
             }
           />
+
+          {/* 사고영상 배치 결과 스크리닝 (public/clips/manifest.json) */}
+          <Route path="/clips" element={<ClipBrowser />} />
 
           {/* 그 외 경로: 랜딩으로 */}
           <Route path="*" element={<Navigate to="/" replace />} />
