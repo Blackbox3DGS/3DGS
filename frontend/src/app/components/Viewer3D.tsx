@@ -31,7 +31,7 @@ const MIN_TRACK_POINTS = 5;
 const FRAME_FPS = 10;            // vehicles.json의 frame_idx → 재생 fps
 const SPLAT_POINT_SIZE = 0.05;   // THREE.Points 점 크기(월드 단위, sizeAttenuation)
 const VEHICLE_SCALE_FRAC = 0.015; // 차량 크기 = 씬 최대치수 × 이 비율 (배경/카메라와 독립 — 이 값만 차 크기에 영향)
-const MIRROR_X = true; // lingbot world handedness 보정 — 씬 좌우 반전(나무가 원본처럼 왼쪽). splat+차량 모두 적용.
+const MIRROR_X = false; // lingbot world handedness 보정. 운전자 전방시점에서 원본대로(나무 왼쪽)면 false. splat+차량 일관 적용.
 const MX = MIRROR_X ? -1 : 1;
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
@@ -197,6 +197,52 @@ async function loadSplatAsPoints(THREE: any, url: string | undefined) {
     console.error('[Viewer3D] splat parse failed', e);
     return null;
   }
+}
+
+// 배경 점구름에서 도로 높이맵을 만들어 (x,z)→지면 y 를 보간. 도로가 평평하지 않아
+// (정렬 잔차/경사) 차량을 상수 y에 놓으면 묻히거나 떠서, 셀별 최저 y(=노면)를 샘플한다.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildGroundSampler(THREE: any, splatPoints: any, box: any, fallbackY: number) {
+  if (!splatPoints) return (_x: number, _z: number) => fallbackY;
+  const pos = splatPoints.geometry.getAttribute('position');
+  const RES = 64;
+  const minX = box.min.x, minZ = box.min.z;
+  const spanX = Math.max(1e-6, box.max.x - box.min.x);
+  const spanZ = Math.max(1e-6, box.max.z - box.min.z);
+  const cell = new Float32Array(RES * RES).fill(Infinity);   // 셀별 최저 y = 노면
+  const n = pos.count;
+  for (let i = 0; i < n; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    let ix = Math.floor(((x - minX) / spanX) * RES); ix = ix < 0 ? 0 : ix >= RES ? RES - 1 : ix;
+    let iz = Math.floor(((z - minZ) / spanZ) * RES); iz = iz < 0 ? 0 : iz >= RES ? RES - 1 : iz;
+    const k = iz * RES + ix;
+    if (y < cell[k]) cell[k] = y;
+  }
+  // 3x3 평균(유한 셀만)으로 평활 + 빈 셀은 fallback.
+  const out = new Float32Array(RES * RES);
+  for (let iz = 0; iz < RES; iz++) for (let ix = 0; ix < RES; ix++) {
+    let s = 0, c = 0;
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      const jx = ix + dx, jz = iz + dz;
+      if (jx < 0 || jz < 0 || jx >= RES || jz >= RES) continue;
+      const v = cell[jz * RES + jx];
+      if (Number.isFinite(v)) { s += v; c++; }
+    }
+    out[iz * RES + ix] = c ? s / c : fallbackY;
+  }
+  return (x: number, z: number) => {
+    const fx = ((x - minX) / spanX) * RES - 0.5;
+    const fz = ((z - minZ) / spanZ) * RES - 0.5;
+    let ix = Math.floor(fx), iz = Math.floor(fz);
+    if (ix < 0 || iz < 0 || ix >= RES - 1 || iz >= RES - 1) {
+      const cx = Math.min(RES - 1, Math.max(0, ix)), cz = Math.min(RES - 1, Math.max(0, iz));
+      return out[cz * RES + cx];
+    }
+    const tx = fx - ix, tz = fz - iz;
+    const a = out[iz * RES + ix], b = out[iz * RES + ix + 1];
+    const c2 = out[(iz + 1) * RES + ix], d = out[(iz + 1) * RES + ix + 1];
+    return a * (1 - tx) * (1 - tz) + b * tx * (1 - tz) + c2 * (1 - tx) * tz + d * tx * tz;
+  };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -372,6 +418,7 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
         vehicles.forEach((v: any) => { if (!v.isEgo) v.points.forEach((p: number[]) => dynY.push(p[1])); });
         dynY.sort((a, b) => a - b);
         const groundY = dynY.length ? dynY[Math.floor(dynY.length / 2)] : center.y;
+        const groundAt = buildGroundSampler(THREE, splatPoints, box, groundY);
 
         // 격자를 씬 크기에 맞춰 도로 평면에 배치 (고정 80×80은 씬 대비 너무 큼).
         const grid = new THREE.GridHelper(maxDim * 1.5, 30, 0x334155, 0x1f2937);
@@ -427,7 +474,7 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
         const startTimeRef = { current: performance.now() };
         const pausePlayheadRef = { current: 0 };
         const lastAutoPlayRef = { current: uiStateRef.current.autoPlay };
-        engineRef.current = { renderer, scene, camera, controls, vehicles, grid, groundY, focusScene, startTimeRef, pausePlayheadRef, lastAutoPlayRef };
+        engineRef.current = { renderer, scene, camera, controls, vehicles, grid, groundY, groundAt, focusScene, startTimeRef, pausePlayheadRef, lastAutoPlayRef };
 
         onLoadedMeta({
           vehicleCount: vehicles.filter((v: { isEgo: boolean }) => !v.isEgo).length,
@@ -463,11 +510,12 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
             const wantThis = v.isEgo || !filterOn || wanted.includes(v.id);
             v.model.visible = active && wantThis && (v.isEgo ? st.showEgo : st.showVehicles);
             v.line.visible = st.showTrajectoryLines && wantThis;
-            // 모든 차량을 도로 평면(groundY)에 올림 — ego(카메라 높이) 부유 + y 지터 제거.
-            v.model.position.set(s.position[0], e.groundY, s.position[2]);
+            // 차량을 (x,z) 지점의 노면 높이에 올림 — 기운 도로에서 묻힘/뜸 방지.
+            const gy = e.groundAt(s.position[0], s.position[2]);
+            v.model.position.set(s.position[0], gy, s.position[2]);
             const dx = s.next[0] - s.position[0], dz = s.next[2] - s.position[2];
             if (dx * dx + dz * dz > 1e-6) {
-              v.model.lookAt(s.next[0], e.groundY, s.next[2]);
+              v.model.lookAt(s.next[0], gy, s.next[2]);
               if (v.isEgo) v.model.rotateY(Math.PI);  // ego GLB 전방축 보정
             }
           });
