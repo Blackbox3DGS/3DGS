@@ -40,9 +40,9 @@ MIN_BELOW_HORIZON_PX = 1.0
 # Forward distance D = h*fy/(v-cy) blows up (and jitters) as the bbox bottom
 # approaches the horizon. Clamp (v-cy) to at least this fraction of the image
 # height so far/near-horizon detections don't produce wiggly trajectories.
-HORIZON_FLOOR_FRAC = 0.02
+HORIZON_FLOOR_FRAC = 0.03
 # Centered moving-average window (frames) for per-track xz smoothing.
-SMOOTH_WIN = 5
+SMOOTH_WIN = 9
 
 
 def _smooth_xz(pts: list, win: int = SMOOTH_WIN) -> list:
