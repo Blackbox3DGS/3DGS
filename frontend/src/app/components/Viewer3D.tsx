@@ -31,7 +31,7 @@ const MIN_TRACK_POINTS = 5;
 const FRAME_FPS = 10;            // vehicles.json의 frame_idx → 재생 fps
 const SPLAT_POINT_SIZE = 0.05;   // THREE.Points 점 크기(월드 단위, sizeAttenuation)
 const VEHICLE_SCALE_FRAC = 0.015; // 차량 크기 = 씬 최대치수 × 이 비율 (배경/카메라와 독립 — 이 값만 차 크기에 영향)
-const MIRROR_X = false; // lingbot world handedness 보정. 운전자 전방시점에서 원본대로(나무 왼쪽)면 false. splat+차량 일관 적용.
+const MIRROR_X = true; // lingbot world handedness 보정. 운전자 전방(focus)시점에서 나무가 원본대로 왼쪽(데이터 확인 93%). splat+차량 일관 적용. (좌우는 시점 의존 — 기본 focus 시점에서 판단)
 const MX = MIRROR_X ? -1 : 1;
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
@@ -218,17 +218,18 @@ function buildGroundSampler(THREE: any, splatPoints: any, box: any, fallbackY: n
     const k = iz * RES + ix;
     if (y < cell[k]) cell[k] = y;
   }
-  // 3x3 평균(유한 셀만)으로 평활 + 빈 셀은 fallback.
+  // 3x3 median(유한 셀만)으로 평활 — 노면 아래 잔여 이상점에 강건. 빈 셀은 fallback.
   const out = new Float32Array(RES * RES);
   for (let iz = 0; iz < RES; iz++) for (let ix = 0; ix < RES; ix++) {
-    let s = 0, c = 0;
+    const nb: number[] = [];
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       const jx = ix + dx, jz = iz + dz;
       if (jx < 0 || jz < 0 || jx >= RES || jz >= RES) continue;
       const v = cell[jz * RES + jx];
-      if (Number.isFinite(v)) { s += v; c++; }
+      if (Number.isFinite(v)) nb.push(v);
     }
-    out[iz * RES + ix] = c ? s / c : fallbackY;
+    if (nb.length) { nb.sort((a, b) => a - b); out[iz * RES + ix] = nb[Math.floor(nb.length / 2)]; }
+    else out[iz * RES + ix] = fallbackY;
   }
   return (x: number, z: number) => {
     const fx = ((x - minX) / spanX) * RES - 0.5;
@@ -418,7 +419,9 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
         vehicles.forEach((v: any) => { if (!v.isEgo) v.points.forEach((p: number[]) => dynY.push(p[1])); });
         dynY.sort((a, b) => a - b);
         const groundY = dynY.length ? dynY[Math.floor(dynY.length / 2)] : center.y;
-        const groundAt = buildGroundSampler(THREE, splatPoints, box, groundY);
+        // 높이맵은 splat 자체 bbox로 (union box는 먼 차량까지 포함해 너무 성김).
+        const splatBox = (splatPoints && splatPoints.geometry.boundingBox) ? splatPoints.geometry.boundingBox : box;
+        const groundAt = buildGroundSampler(THREE, splatPoints, splatBox, groundY);
 
         // 격자를 씬 크기에 맞춰 도로 평면에 배치 (고정 80×80은 씬 대비 너무 큼).
         const grid = new THREE.GridHelper(maxDim * 1.5, 30, 0x334155, 0x1f2937);
