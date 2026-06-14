@@ -35,10 +35,33 @@ import cv2
 import numpy as np
 
 # Horizon is taken at the principal point (dashcam assumed roughly level). A
-# bbox bottom this many pixels below the horizon is the minimum for a usable
-# ground intersection (clamps the forward distance so near-horizon detections
-# don't shoot to infinity).
-MIN_BELOW_HORIZON_PX = 1.5
+# bbox bottom must be at least this far below the horizon to count as ground.
+MIN_BELOW_HORIZON_PX = 1.0
+# Forward distance D = h*fy/(v-cy) blows up (and jitters) as the bbox bottom
+# approaches the horizon. Clamp (v-cy) to at least this fraction of the image
+# height so far/near-horizon detections don't produce wiggly trajectories.
+HORIZON_FLOOR_FRAC = 0.02
+# Centered moving-average window (frames) for per-track xz smoothing.
+SMOOTH_WIN = 5
+
+
+def _smooth_xz(pts: list, win: int = SMOOTH_WIN) -> list:
+    """Centered moving-average on the x,z of a track's [x,y,z,frame] points.
+
+    Tames residual per-frame jitter (bbox-bottom noise amplified by 1/(v-cy));
+    y and frame_idx are left untouched.
+    """
+    if len(pts) < 3 or win < 2:
+        return pts
+    arr = np.asarray(pts, dtype=np.float64)
+    half = win // 2
+    out = arr.copy()
+    for i in range(len(arr)):
+        a = max(0, i - half)
+        b = min(len(arr), i + half + 1)
+        out[i, 0] = arr[a:b, 0].mean()
+        out[i, 2] = arr[a:b, 2].mean()
+    return [[float(p[0]), float(p[1]), float(p[2]), int(p[3])] for p in out]
 
 
 def _smoothed_forward(centers: np.ndarray, up: np.ndarray, win: int = 5) -> np.ndarray:
@@ -160,14 +183,14 @@ def export_trajectories_json(
                 dv = v - cy                           # below horizon = on the road ahead
                 if dv <= MIN_BELOW_HORIZON_PX:
                     continue                          # at/above horizon -> skip
-                D = h_cam * fy / dv                   # forward distance (monotonic in v)
-                D = min(D, max_forward)
+                dv_eff = max(dv, HORIZON_FLOOR_FRAC * H_p)  # clamp near-horizon jitter
+                D = min(h_cam * fy / dv_eff, max_forward)   # forward distance (monotonic in v)
                 L = (u - cx) / fx * D                 # lateral offset
                 P = C[i] + D * f + L * r              # on the road, ahead of the ego
                 per_track[tid].append([float(P[0]), road_y, float(P[2]), i])
 
         for tid in sorted(per_track, key=lambda s: int(s)):
-            pts = per_track[tid]
+            pts = _smooth_xz(per_track[tid])
             if len(pts) >= 2:
                 cls = tracks.get(tid, {}).get("class_name", "car")
                 vehicles.append({"id": str(tid), "class": cls, "points": pts})
