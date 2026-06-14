@@ -209,16 +209,28 @@ function buildGroundSampler(THREE: any, splatPoints: any, box: any, fallbackY: n
   const minX = box.min.x, minZ = box.min.z;
   const spanX = Math.max(1e-6, box.max.x - box.min.x);
   const spanZ = Math.max(1e-6, box.max.z - box.min.z);
-  const cell = new Float32Array(RES * RES).fill(Infinity);   // 셀별 최저 y = 노면
+  // 차를 노면 점구름 "속"이 아니라 "위"에 앉히려면 도로 표면의 *윗면*을 써야 한다.
+  // pass1: 셀별 최저 y(=노면 바닥). pass2: [min, min+band] 안(=도로 띠, 나무 제외)의
+  // 최댓값(=도로 표면 top). band는 씬 높이의 일부.
+  const band = 0.15 * Math.max(1e-6, box.max.y - box.min.y);
+  const cmin = new Float32Array(RES * RES).fill(Infinity);
   const n = pos.count;
   for (let i = 0; i < n; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
     let ix = Math.floor(((x - minX) / spanX) * RES); ix = ix < 0 ? 0 : ix >= RES ? RES - 1 : ix;
     let iz = Math.floor(((z - minZ) / spanZ) * RES); iz = iz < 0 ? 0 : iz >= RES ? RES - 1 : iz;
     const k = iz * RES + ix;
-    if (y < cell[k]) cell[k] = y;
+    if (y < cmin[k]) cmin[k] = y;
   }
-  // 3x3 median(유한 셀만)으로 평활 — 노면 아래 잔여 이상점에 강건. 빈 셀은 fallback.
+  const cell = new Float32Array(RES * RES).fill(-Infinity);   // 셀별 도로 표면 top
+  for (let i = 0; i < n; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    let ix = Math.floor(((x - minX) / spanX) * RES); ix = ix < 0 ? 0 : ix >= RES ? RES - 1 : ix;
+    let iz = Math.floor(((z - minZ) / spanZ) * RES); iz = iz < 0 ? 0 : iz >= RES ? RES - 1 : iz;
+    const k = iz * RES + ix;
+    if (y <= cmin[k] + band && y > cell[k]) cell[k] = y;   // 도로 띠 내 최댓값
+  }
+  // 3x3 median(유한 셀만)으로 평활. 빈 셀은 fallback.
   const out = new Float32Array(RES * RES);
   for (let iz = 0; iz < RES; iz++) for (let ix = 0; ix < RES; ix++) {
     const nb: number[] = [];
@@ -389,7 +401,8 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
           const model = (isEgo ? egoBase : carBase).clone(true);
           model.visible = isEgo ? uiStateRef.current.showEgo : uiStateRef.current.showVehicles;
           vehicleGroup.add(model);
-          const pts = smoothPoints(spec.points).map((p) => [MX * p[0], p[1], p[2], p[3]]);
+          // 두 번 평활(≈win17) — 직진구간 미세 흔들림 완화. (먼 차의 큰 점프는 백엔드 클램프로.)
+          const pts = smoothPoints(smoothPoints(spec.points, 9), 9).map((p) => [MX * p[0], p[1], p[2], p[3]]);
           const line = new THREE.Line(
             new THREE.BufferGeometry().setFromPoints(pts.map((p) => new THREE.Vector3(p[0], p[1], p[2]))),
             new THREE.LineBasicMaterial({ color })
