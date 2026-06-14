@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { OriginalFramesPanel } from './OriginalFramesPanel';
 
 // ─── 상수 ───────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,8 @@ interface Viewer3DProps {
   resultUrl?: string;      // Gaussian Splat (.splat) URL → 점구름 배경
   trajectoryUrl?: string;  // (legacy) 단일 궤적 JSON URL
   vehiclesUrl?: string;    // vehicles.json (ego + 동적차량 N대)
+  framesPattern?: string;  // 원본 프레임 URL 패턴 (예: "/frames/%06d.jpg")
+  bboxSequenceUrl?: string; // Stage-03 bbox_sequence.json URL (track id 확인용)
 }
 
 interface VehicleSpec { id: string; cls: string; points: unknown[] }
@@ -375,21 +378,37 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
         grid.position.set(center.x, groundY, center.z);
         scene.add(grid);
 
+        // 평균 위치(xz) 헬퍼
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const avgXZ = (vs: any[]) => {
+          let sx = 0, sz = 0, n = 0;
+          vs.forEach((v) => v.points.forEach((p: number[]) => { sx += p[0]; sz += p[2]; n++; }));
+          return n ? new THREE.Vector3(sx / n, groundY, sz / n) : center.clone();
+        };
+
         const focusScene = () => {
-          // 기본 시점 = ego 뒤에서 주행방향을 바라봄(운전자 3인칭) → 원본 영상과 좌우 일치.
+          // 기본 시점 = ego 뒤에서 "동적차량들이 있는 방향(=실제 전방)"을 바라봄.
+          // ego 이동(last-first)은 lingbot 드리프트로 시선과 안 맞을 수 있어 차량 중심을 전방으로 사용.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const ego = vehicles.find((v: any) => v.isEgo);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const dyn = vehicles.filter((v: any) => !v.isEgo && v.points.length);
           let target = center.clone();
           let pos = new THREE.Vector3(center.x, center.y + maxDim * 0.45, center.z + maxDim * 1.1);
-          if (ego && ego.points.length >= 2) {
-            const p0 = ego.points[0]; const pN = ego.points[ego.points.length - 1];
-            const dir = new THREE.Vector3(pN[0] - p0[0], 0, pN[2] - p0[2]);
-            if (dir.lengthSq() > 1e-6) {
-              dir.normalize();
-              const start = new THREE.Vector3(p0[0], groundY, p0[2]);
-              target = start.clone().addScaledVector(dir, maxDim * 0.35); target.y = groundY + maxDim * 0.05;
-              pos = start.clone().addScaledVector(dir, -maxDim * 0.25); pos.y = groundY + maxDim * 0.18;
+          if (ego && ego.points.length) {
+            const egoC = avgXZ([ego]);
+            const fwd = new THREE.Vector3();
+            if (dyn.length) {
+              const dynC = avgXZ(dyn);
+              fwd.set(dynC.x - egoC.x, 0, dynC.z - egoC.z);   // ego → 차량들 = 실제 전방
+            } else {
+              const p0 = ego.points[0], pN = ego.points[ego.points.length - 1];
+              fwd.set(pN[0] - p0[0], 0, pN[2] - p0[2]);
             }
+            if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
+            fwd.normalize();
+            target.set(egoC.x + fwd.x * maxDim * 0.3, groundY + maxDim * 0.05, egoC.z + fwd.z * maxDim * 0.3);
+            pos.set(egoC.x - fwd.x * maxDim * 0.3, groundY + maxDim * 0.2, egoC.z - fwd.z * maxDim * 0.3);
           }
           controls.target.copy(target);
           camera.position.copy(pos);
@@ -433,13 +452,17 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
           const frames = baseElapsed * FRAME_FPS;
           const sampleInput = st.playbackLoop ? frames % dur : Math.min(frames, dur);
 
+          // 타깃 id 필터(쉼표구분). 비면 전체, 있으면 해당 id + ego만.
+          const wanted = (st.targetIdsCsv || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+          const filterOn = wanted.length > 0;
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           e.vehicles.forEach((v: any) => {
             const s = samplePath(v.points, sampleInput - v.first);
             // 트랙 활성 구간에서만 표시 (시작 전/종료 후엔 숨김 → 정지상태로 남지 않음).
             const active = sampleInput >= v.first - 0.5 && sampleInput <= v.last + 0.5;
-            v.model.visible = active && (v.isEgo ? st.showEgo : st.showVehicles);
-            v.line.visible = st.showTrajectoryLines;
+            const wantThis = v.isEgo || !filterOn || wanted.includes(v.id);
+            v.model.visible = active && wantThis && (v.isEgo ? st.showEgo : st.showVehicles);
+            v.line.visible = st.showTrajectoryLines && wantThis;
             // 모든 차량을 도로 평면(groundY)에 올림 — ego(카메라 높이) 부유 + y 지터 제거.
             v.model.position.set(s.position[0], e.groundY, s.position[2]);
             const dx = s.next[0] - s.position[0], dz = s.next[2] - s.position[2];
@@ -493,11 +516,12 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
 
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────────────────
 
-export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl }: Viewer3DProps) {
+export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl, framesPattern, bboxSequenceUrl }: Viewer3DProps) {
   const [status, setStatus] = useState({ phase: 'idle', message: '' });
   const [showVehicles, setShowVehicles] = useState(true);
   const [showEgo, setShowEgo] = useState(true);
   const [showTrajectoryLines, setShowTrajectoryLines] = useState(true);
+  const [targetIds, setTargetIds] = useState('');
   const [autoPlay, setAutoPlay] = useState(true);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [loadedMeta, setLoadedMeta] = useState<Record<string, unknown>>({});
@@ -575,6 +599,7 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl }: Viewe
             showVehicles={showVehicles}
             showEgo={showEgo}
             showTrajectoryLines={showTrajectoryLines}
+            targetIdsCsv={targetIds}
             autoPlay={autoPlay}
             playbackSpeed={playbackSpeed}
             playbackLoop={true}
@@ -582,6 +607,16 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl }: Viewe
             onLoadedMeta={handleLoadedMeta}
           />
         </div>
+
+        {/* 원본 프레임 + 차량 추적(track id) + 타깃 선택 */}
+        {framesPattern && bboxSequenceUrl && (
+          <OriginalFramesPanel
+            framesPattern={framesPattern}
+            bboxSequenceUrl={bboxSequenceUrl}
+            targetIds={targetIds}
+            onTargetIdsChange={setTargetIds}
+          />
+        )}
       </div>
     </ViewerErrorBoundary>
   );

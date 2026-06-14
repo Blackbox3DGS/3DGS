@@ -98,6 +98,8 @@ export default function App() {
                   jobId="viewer-test"
                   resultUrl="/sample3.splat"
                   vehiclesUrl="/sample3_vehicles.json"
+                  framesPattern="/frames/%06d.jpg"
+                  bboxSequenceUrl="/sample3_bbox.json"
                 />
               </div>
             }
