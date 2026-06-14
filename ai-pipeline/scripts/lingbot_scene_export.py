@@ -69,7 +69,7 @@ def main():
     up = (0.0, 1.0, 0.0) if args.splat_up == "y+" else (0.0, -1.0, 0.0)
     frame_paths = [str(p) for p in image_paths]
 
-    _, R, center = predictions_to_splat(
+    _, R, center, ground_n, ground_p = predictions_to_splat(
         vis, args.out_splat,
         conf_threshold=args.conf_threshold,
         mask_sky=True,
@@ -88,6 +88,7 @@ def main():
             center=center, R=R,
             bbox_sequence_path=args.bbox_sequence,
             dynamic_mask_dir=args.dynamic_mask_dir,
+            ground_normal=ground_n, ground_point=ground_p,  # 지면 광선 교차로 차량 위치
         )
 
     print("Done.")

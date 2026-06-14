@@ -66,11 +66,13 @@ def _fit_ground_normal(xyz: np.ndarray, ransac_iters: int = 500,
         if cnt > best_cnt:
             best_cnt, best_n, best_d = cnt, n, d
     inl = pts[np.abs(pts @ best_n + best_d) < thresh]
+    point = np.median(pts, axis=0)
     if len(inl) >= 3:
         c = inl.mean(axis=0)
         _, _, Vt = np.linalg.svd(inl - c, full_matrices=False)
         best_n = Vt[-1]
-    return best_n / (np.linalg.norm(best_n) + 1e-12)
+        point = c  # a point on the fitted ground plane (inlier centroid)
+    return best_n / (np.linalg.norm(best_n) + 1e-12), point
 
 
 def _rotation_normal_to_up(normal: np.ndarray, up=(0.0, 1.0, 0.0)) -> np.ndarray:
@@ -95,12 +97,13 @@ def _ground_align_rotation(xyz: np.ndarray, cam_centers: np.ndarray,
     gsplat.js frontend (cars upright); use -Y for the antimatter15 debug viewer
     (Y-down) if it looks flipped there.
     """
-    normal = _fit_ground_normal(xyz)
+    normal, point = _fit_ground_normal(xyz)
     if cam_centers is not None and len(cam_centers):
         ground_pt = np.median(xyz, axis=0)
         if normal @ (np.median(cam_centers, axis=0) - ground_pt) < 0:
             normal = -normal
-    return _rotation_normal_to_up(normal, up=up).astype(np.float64)
+    R = _rotation_normal_to_up(normal, up=up).astype(np.float64)
+    return R, normal, point  # R, plane normal (native), point on plane (native)
 
 
 def _clip_and_recenter(xyz: np.ndarray, rgb: np.ndarray,
@@ -230,9 +233,11 @@ def predictions_to_splat(
         raise RuntimeError("No points survived filtering — lower conf_threshold?")
 
     R = np.eye(3)
+    plane_n = None   # ground plane normal (native frame) for vehicle ray-intersection
+    plane_p = None   # a point on the ground plane (native frame)
     if ground_align:
         cam_centers = np.asarray(extrinsics_cam, dtype=np.float64)[:, :3, 3]
-        R = _ground_align_rotation(xyz.astype(np.float64), cam_centers, up=up_axis)
+        R, plane_n, plane_p = _ground_align_rotation(xyz.astype(np.float64), cam_centers, up=up_axis)
         xyz = (xyz @ R.T).astype(np.float32)
         print(f"Ground-aligned scene (road normal -> {tuple(up_axis)})")
 
@@ -277,4 +282,4 @@ def predictions_to_splat(
         f.write(data.tobytes())
     size_mb = os.path.getsize(out_path) / (1024 * 1024)
     print(f"Wrote {out_path} ({size_mb:.1f} MB, {n} points as Gaussians)")
-    return out_path, R.astype(np.float32), center
+    return out_path, R.astype(np.float32), center, plane_n, plane_p

@@ -77,6 +77,22 @@ def _pixel_to_world(u, v, depth, c2w, fx, fy, cx, cy):
     return float(pw[0]), float(pw[1]), float(pw[2])
 
 
+def _ray_ground_intersect(origin, dir_world, n, p0):
+    """Intersect a camera ray with the ground plane n·(P-p0)=0. None if behind/parallel.
+
+    More reliable than surface depth for ordering ground vehicles: the contact
+    point distance is monotonic in the bbox-bottom image row, so front/back order
+    is preserved even when monocular depth is noisy.
+    """
+    denom = float(n @ dir_world)
+    if abs(denom) < 1e-9:
+        return None
+    t = float(n @ (p0 - origin)) / denom
+    if t <= 0:
+        return None
+    return origin + t * dir_world
+
+
 def export_trajectories_json(
     predictions: dict,
     out_path: str,
@@ -86,6 +102,8 @@ def export_trajectories_json(
     R=None,
     bbox_sequence_path=None,
     dynamic_mask_dir=None,
+    ground_normal=None,
+    ground_point=None,
 ) -> str:
     """Write vehicles.json (ego + dynamic tracks) in the background's frame.
 
@@ -118,8 +136,8 @@ def export_trajectories_json(
     if ego_pts:
         vehicles.append({"id": "ego", "class": "ego", "points": ego_pts})
 
-    # Dynamic vehicles from Stage-03 bbox_sequence + masks.
-    if bbox_sequence_path and dynamic_mask_dir and os.path.exists(bbox_sequence_path):
+    # Dynamic vehicles from Stage-03 bbox_sequence.
+    if bbox_sequence_path and os.path.exists(bbox_sequence_path):
         with open(bbox_sequence_path) as f:
             bseq = json.load(f)
         tracks = bseq.get("tracks", {})
@@ -128,46 +146,70 @@ def export_trajectories_json(
             dyn_ids = {tid for tid, t in tracks.items()
                        if t.get("state") == "dynamic" and tid != "-1"}
 
-        mdir = Path(dynamic_mask_dir)
+        # Preferred: ground-plane ray intersection (correct front/back ordering).
+        use_ground = ground_normal is not None and ground_point is not None
+        gN = np.asarray(ground_normal, dtype=np.float64) if use_ground else None
+        gP = np.asarray(ground_point, dtype=np.float64) if use_ground else None
+        print(f"Dynamic vehicle placement: {'ground-ray' if use_ground else 'surface-depth'}")
+
+        # Original frame resolution (bbox -> processed-intrinsic scaling).
         H_o = W_o = None
+        if frame_paths:
+            im0 = cv2.imread(str(frame_paths[0]))
+            if im0 is not None:
+                H_o, W_o = im0.shape[:2]
+        mdir = Path(dynamic_mask_dir) if dynamic_mask_dir else None
+
         per_track = {tid: [] for tid in dyn_ids}
         for i in range(S):
-            stem = Path(frame_paths[i]).stem if i < len(frame_paths) else None
-            if stem is None:
-                continue
-            mpath = None
-            for ext in (".png", ".jpg"):
-                cand = mdir / f"{stem}{ext}"
-                if cand.exists():
-                    mpath = cand
-                    break
-            if mpath is None:
-                continue
-            m = cv2.imread(str(mpath), cv2.IMREAD_GRAYSCALE)
-            if m is None:
-                continue
-            if H_o is None:
-                H_o, W_o = m.shape[:2]
+            if H_o is None or i >= len(frame_paths):
+                break
             sx, sy = W_p / float(W_o), H_p / float(H_o)
-            if m.shape[0] != H_p or m.shape[1] != W_p:
-                m = cv2.resize(m, (W_p, H_p), interpolation=cv2.INTER_NEAREST)
-
             fx, fy = intr[i, 0, 0], intr[i, 1, 1]
             cx, cy = intr[i, 0, 2], intr[i, 1, 2]
-            depth_i = depth[i]
+            origin = c2w4[i, :3, 3]
+            Rc = c2w4[i, :3, :3]
+
+            # Surface-depth fallback needs the per-frame mask.
+            mask_i = None
+            if not use_ground and mdir is not None:
+                stem = Path(frame_paths[i]).stem
+                for ext in (".png", ".jpg"):
+                    cand = mdir / f"{stem}{ext}"
+                    if cand.exists():
+                        mm = cv2.imread(str(cand), cv2.IMREAD_GRAYSCALE)
+                        if mm is not None:
+                            if mm.shape[0] != H_p or mm.shape[1] != W_p:
+                                mm = cv2.resize(mm, (W_p, H_p), interpolation=cv2.INTER_NEAREST)
+                            mask_i = mm
+                        break
+
             for tid in dyn_ids:
                 fr = tracks.get(tid, {}).get("frames", {}).get(str(i))
                 if fr is None:
                     continue
-                bx = fr["bbox"]
-                bbox_p = (bx[0] * sx, bx[1] * sy, bx[2] * sx, bx[3] * sy)
-                s = _sample_track_frame(m, depth_i, bbox_p)
-                if s is None:
-                    continue
-                u, v, d = s
-                wx, wy, wz = _pixel_to_world(u, v, d, c2w4[i], fx, fy, cx, cy)
-                x, y, z = _xform((wx, wy, wz))
-                per_track[tid].append([x, y, z, i])
+                bx = fr["bbox"]  # original-res [x1,y1,x2,y2]
+                if use_ground:
+                    # bbox 바닥중심(접지점) → 광선 → 도로평면 교차
+                    u = 0.5 * (bx[0] + bx[2]) * sx
+                    v = bx[3] * sy
+                    dir_cam = np.array([(u - cx) / fx, (v - cy) / fy, 1.0], dtype=np.float64)
+                    P = _ray_ground_intersect(origin, Rc @ dir_cam, gN, gP)
+                    if P is None:
+                        continue
+                    x, y, z = _xform(P)
+                    per_track[tid].append([x, y, z, i])
+                else:
+                    if mask_i is None:
+                        continue
+                    bbox_p = (bx[0] * sx, bx[1] * sy, bx[2] * sx, bx[3] * sy)
+                    s = _sample_track_frame(mask_i, depth[i], bbox_p)
+                    if s is None:
+                        continue
+                    uu, vv, dd = s
+                    wx, wy, wz = _pixel_to_world(uu, vv, dd, c2w4[i], fx, fy, cx, cy)
+                    x, y, z = _xform((wx, wy, wz))
+                    per_track[tid].append([x, y, z, i])
 
         for tid in sorted(per_track, key=lambda s: int(s)):
             pts = per_track[tid]
