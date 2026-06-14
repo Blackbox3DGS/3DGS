@@ -19,6 +19,8 @@ export interface AnalysisRecord {
   incidentDate: string;
   resultUrl?: string;
   trajectoryUrl?: string;
+  framesPattern?: string;     // 원본 프레임 URL 패턴 (예: ".../frames/%06d.jpg") — 있으면 원본/타깃 패널 표시
+  bboxSequenceUrl?: string;   // Stage-03 bbox_sequence.json URL (track id 확인용)
 }
 
 // userId 기반 일관된 랜덤 닉네임 생성
@@ -55,7 +57,11 @@ const DEMO_RECORDS: AnalysisRecord[] = [
     currentStep: '완료',
     createdAt: '2025-03-10T09:15:00',
     incidentDate: '2025-03-08T14:30:00',
-    resultUrl: undefined,
+    // 데모(시연)용 — public/의 정적 샘플에 연결해 백엔드 없이 전체 뷰어 시연.
+    resultUrl: '/sample3.splat',
+    trajectoryUrl: '/sample3_vehicles.json',
+    framesPattern: '/frames/%06d.jpg',
+    bboxSequenceUrl: '/sample3_bbox.json',
   },
   {
     jobId: 'demo-2',
@@ -537,6 +543,8 @@ export function Dashboard() {
               jobId={selectedRecord.jobId}
               resultUrl={selectedRecord.resultUrl}
               trajectoryUrl={selectedRecord.trajectoryUrl}
+              framesPattern={selectedRecord.framesPattern}
+              bboxSequenceUrl={selectedRecord.bboxSequenceUrl}
             />
           </section>
         )}
