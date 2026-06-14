@@ -11,69 +11,44 @@ import {
 // ─── 상수 ───────────────────────────────────────────────────────────────────
 
 const sampleTrajectoryA = [
-  [2.8, 0.05, 1.8],
-  [2.3, 0.05, 1.3],
-  [1.9, 0.05, 0.8],
-  [1.6, 0.05, 0.3],
-  [1.5, 0.05, -0.2],
-  [1.5, 0.05, -0.8],
+  [2.8, 0.05, 1.8, 0], [2.3, 0.05, 1.3, 1], [1.9, 0.05, 0.8, 2],
+  [1.6, 0.05, 0.3, 3], [1.5, 0.05, -0.2, 4], [1.5, 0.05, -0.8, 5],
 ];
-
 const sampleTrajectoryB = [
-  [0.0, 0.05, 0.0],
-  [0.8, 0.05, -0.3],
-  [1.6, 0.05, -0.6],
-  [2.2, 0.05, -1.0],
-  [3.0, 0.05, -1.3],
-  [3.8, 0.05, -1.5],
+  [0.0, 0.05, 0.0, 0], [0.8, 0.05, -0.3, 1], [1.6, 0.05, -0.6, 2],
+  [2.2, 0.05, -1.0, 3], [3.0, 0.05, -1.3, 4], [3.8, 0.05, -1.5, 5],
 ];
 
-// 데모용 기본 차량 모델 경로 (public 폴더)
-const DEMO_VEHICLE_URL_A = '/car-a.glb';
-const DEMO_VEHICLE_URL_B = '/car-b.glb';
+// 데모용 기본 차량 모델 (public 폴더)
+const DEMO_VEHICLE_URL_CAR = '/car-a.glb';
+const DEMO_VEHICLE_URL_EGO = '/car-b.glb';
 
-const defaultAccidentPoint = [1.5, 0.06, -0.8];
-const CAMERA_ROTATE_SPEED = 0.006;
-const CAMERA_PAN_MULTIPLIER = 0.0065;
-const CAMERA_DOLLY_IN = 0.84;
-const CAMERA_DOLLY_OUT = 1.16;
-const CAMERA_MIN_DISTANCE = 2.8;
-const CAMERA_MAX_DISTANCE = 40;
-const CAMERA_MIN_PHI = 0.35;
-const CAMERA_MAX_PHI = Math.PI / 2 - 0.12;
+const EGO_COLOR = 0x22c55e;
+const DYNAMIC_COLORS = [0x2563eb, 0xef4444, 0xf59e0b, 0xa855f7, 0x06b6d4, 0xec4899, 0x84cc16, 0xf97316];
+const VEHICLE_CLASSES = new Set(['car', 'truck', 'bus', 'motorcycle', 'bicycle']);
+const MIN_TRACK_POINTS = 5;
+const FRAME_FPS = 10;            // vehicles.json의 frame_idx → 재생 fps
+const SPLAT_POINT_SIZE = 0.05;   // THREE.Points 점 크기(월드 단위, sizeAttenuation)
+const VEHICLE_SCALE_FRAC = 0.055; // 차량 크기 = 씬 최대치수 × 이 비율 (lingbot 네이티브=비미터라 상대 크기)
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 
 interface Viewer3DProps {
   jobId: string;
-  resultUrl?: string;      // Gaussian Splat (.splat) URL
+  resultUrl?: string;      // Gaussian Splat (.splat) URL → 점구름 배경
   trajectoryUrl?: string;  // (legacy) 단일 궤적 JSON URL
-  vehiclesUrl?: string;    // vehicles.json (ego + 동적차량 N대) URL
+  vehiclesUrl?: string;    // vehicles.json (ego + 동적차량 N대)
 }
 
-interface OrbitState {
-  theta: number;
-  phi: number;
-  distance: number;
-  target: [number, number, number];
-}
-
-interface Point3D { x: number; y: number; z: number }
-interface NormalizedPoint extends Point3D { t: number | null; index: number; raw: unknown }
+interface VehicleSpec { id: string; cls: string; points: unknown[] }
 interface SampleResult { position: [number, number, number]; next: [number, number, number] }
 
 // ─── 에러 바운더리 ────────────────────────────────────────────────────────────
 
 interface ErrorBoundaryState { hasError: boolean; message: string }
-
 class ViewerErrorBoundary extends Component<{ children: React.ReactNode }, ErrorBoundaryState> {
-  constructor(props: { children: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false, message: '' };
-  }
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, message: error?.message || '알 수 없는 렌더링 오류' };
-  }
+  constructor(props: { children: React.ReactNode }) { super(props); this.state = { hasError: false, message: '' }; }
+  static getDerivedStateFromError(error: Error) { return { hasError: true, message: error?.message || '렌더링 오류' }; }
   componentDidCatch() {}
   render() {
     if (this.state.hasError) {
@@ -88,254 +63,156 @@ class ViewerErrorBoundary extends Component<{ children: React.ReactNode }, Error
   }
 }
 
-// ─── 유틸 함수 ───────────────────────────────────────────────────────────────
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function setVectorLike(target: any, x: number, y: number, z: number): boolean {
-  if (!target) return false;
-  if (typeof target.set === 'function') { target.set(x, y, z); return true; }
-  if (Array.isArray(target)) { target[0] = x; target[1] = y; target[2] = z; return true; }
-  if (typeof target === 'object') {
-    let changed = false;
-    if ('x' in target) { target.x = x; changed = true; }
-    if ('y' in target) { target.y = y; changed = true; }
-    if ('z' in target) { target.z = z; changed = true; }
-    return changed;
-  }
-  return false;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function safeSetGsplatCameraPosition(camera: any, x: number, y: number, z: number) {
-  if (!camera) return false;
-  return (
-    setVectorLike(camera.position, x, y, z) ||
-    setVectorLike(camera._position, x, y, z) ||
-    setVectorLike(camera.translation, x, y, z)
-  );
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function safeReadGsplatPosition(camera: any): Point3D | null {
-  const candidate = camera && (camera.position || camera._position || camera.translation);
-  if (!candidate) return null;
-  if (Array.isArray(candidate) && candidate.length >= 3) {
-    return { x: Number(candidate[0]) || 0, y: Number(candidate[1]) || 0, z: Number(candidate[2]) || 0 };
-  }
-  if (typeof candidate.x === 'number' && typeof candidate.y === 'number' && typeof candidate.z === 'number') {
-    return { x: candidate.x, y: candidate.y, z: candidate.z };
-  }
-  return null;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function safeSetGsplatTarget(controls: any, x: number, y: number, z: number) {
-  if (!controls?.target || typeof controls.target.set !== 'function') return false;
-  controls.target.set(x, y, z);
-  return true;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function copyGsplatCameraToThreeCamera(gsCamera: any, threeCamera: any) {
-  if (!gsCamera || !threeCamera) return;
-  const gsPosition = safeReadGsplatPosition(gsCamera);
-  const gsQuaternion = gsCamera.quaternion || gsCamera._quaternion;
-  if (gsPosition) threeCamera.position.set(gsPosition.x, gsPosition.y, gsPosition.z);
-  if (gsQuaternion && typeof gsQuaternion.x === 'number') {
-    threeCamera.quaternion.set(gsQuaternion.x, gsQuaternion.y, gsQuaternion.z, gsQuaternion.w);
-  }
-  const maybeFov = gsCamera.fov ?? gsCamera._fov ?? gsCamera._data?._fov;
-  const maybeNear = gsCamera.near ?? gsCamera._near ?? gsCamera._data?._near;
-  const maybeFar = gsCamera.far ?? gsCamera._far ?? gsCamera._data?._far;
-  if (typeof maybeFov === 'number') threeCamera.fov = maybeFov;
-  if (typeof maybeNear === 'number') threeCamera.near = maybeNear;
-  if (typeof maybeFar === 'number') threeCamera.far = maybeFar;
-  threeCamera.updateProjectionMatrix();
-}
+// ─── 유틸 ────────────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getPointComponents(point: any): { x: number; y: number; z: number; t: number | null } {
   if (Array.isArray(point)) {
-    return {
-      x: Number(point[0] || 0), y: Number(point[1] || 0), z: Number(point[2] || 0),
-      t: point.length > 3 ? Number(point[3]) || 0 : null,
-    };
+    return { x: Number(point[0] || 0), y: Number(point[1] || 0), z: Number(point[2] || 0), t: point.length > 3 ? Number(point[3]) || 0 : null };
   }
   if (point && typeof point === 'object') {
     const tValue = point.t ?? point.time ?? point.timestamp;
-    return {
-      x: Number(point.x ?? point.X ?? 0) || 0,
-      y: Number(point.y ?? point.Y ?? point.height ?? 0) || 0,
-      z: Number(point.z ?? point.Z ?? 0) || 0,
-      t: tValue != null ? Number(tValue) || 0 : null,
-    };
+    return { x: Number(point.x ?? 0) || 0, y: Number(point.y ?? point.height ?? 0) || 0, z: Number(point.z ?? 0) || 0, t: tValue != null ? Number(tValue) || 0 : null };
   }
   return { x: 0, y: 0, z: 0, t: null };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalizeTrajectoryPoints(points: any[]): NormalizedPoint[] {
-  const raw = Array.isArray(points) ? points : [];
-  return raw.map((point, index) => {
-    const parsed = getPointComponents(point);
-    return { x: parsed.x, y: parsed.y, z: parsed.z, t: parsed.t, index, raw: point };
+// 이동평균 스무딩 — lingbot 포즈/depth 지터로 인한 흔들림 완화. t(frame_idx) 유지.
+function smoothPoints(points: unknown[], win = 7): number[][] {
+  const c = (Array.isArray(points) ? points : []).map(getPointComponents);
+  if (c.length < 3) return c.map((p, i) => [p.x, p.y, p.z, p.t ?? i]);
+  const half = Math.floor(win / 2);
+  return c.map((_, i) => {
+    let sx = 0, sy = 0, sz = 0, n = 0;
+    for (let j = Math.max(0, i - half); j <= Math.min(c.length - 1, i + half); j++) { sx += c[j].x; sy += c[j].y; sz += c[j].z; n++; }
+    return [sx / n, sy / n, sz / n, c[i].t ?? i];
   });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function trajectoryHasTimestamps(points: any[]) {
-  const normalized = normalizeTrajectoryPoints(points);
-  return normalized.length > 1 && normalized.every((p) => p.t != null);
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getTrajectoryCenter(pointsA: any[], pointsB: any[]): [number, number, number] {
-  const merged = [...(Array.isArray(pointsA) ? pointsA : []), ...(Array.isArray(pointsB) ? pointsB : [])];
-  if (merged.length === 0) return [0, 0.22, 0];
-  let sumX = 0, sumZ = 0;
-  merged.forEach((p) => { const c = getPointComponents(p); sumX += c.x; sumZ += c.z; });
-  return [sumX / merged.length, 0.22, sumZ / merged.length];
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getFramedCameraPosition(center: [number, number, number], pointsA: any[], pointsB: any[]): [number, number, number] {
-  const merged = [...(Array.isArray(pointsA) ? pointsA : []), ...(Array.isArray(pointsB) ? pointsB : [])];
-  if (merged.length === 0) return [0, 3.2, 6.8];
-  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-  merged.forEach((p) => { const c = getPointComponents(p); minX = Math.min(minX, c.x); maxX = Math.max(maxX, c.x); minZ = Math.min(minZ, c.z); maxZ = Math.max(maxZ, c.z); });
-  const spanX = Math.max(1.6, maxX - minX);
-  const spanZ = Math.max(1.6, maxZ - minZ);
-  const depth = Math.max(spanX, spanZ);
-  return [center[0], 3.2 + depth * 0.55, center[2] + 5.4 + depth * 0.9];
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getAccidentPoint(pointsA: any[], pointsB: any[]): [number, number, number] {
-  const a = Array.isArray(pointsA) ? pointsA : [];
-  const b = Array.isArray(pointsB) ? pointsB : [];
-  if (a.length === 0 && b.length === 0) return [...defaultAccidentPoint] as [number, number, number];
-  if (a.length === 0) { const lb = getPointComponents(b[b.length - 1]); return [lb.x, lb.y + 0.01, lb.z]; }
-  if (b.length === 0) { const la = getPointComponents(a[a.length - 1]); return [la.x, la.y + 0.01, la.z]; }
-  let bestA = getPointComponents(a[0]), bestB = getPointComponents(b[0]), bestDist = Infinity;
-  a.forEach((pa_) => {
-    const pa = getPointComponents(pa_);
-    b.forEach((pb_) => {
-      const pb = getPointComponents(pb_);
-      const d = (pa.x - pb.x) ** 2 + (pa.y - pb.y) ** 2 + (pa.z - pb.z) ** 2;
-      if (d < bestDist) { bestDist = d; bestA = pa; bestB = pb; }
-    });
-  });
-  return [(bestA.x + bestB.x) / 2, (bestA.y + bestB.y) / 2 + 0.01, (bestA.z + bestB.z) / 2];
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function findClosestPointPair(pointsA: any[], pointsB: any[]) {
-  const a = normalizeTrajectoryPoints(pointsA);
-  const b = normalizeTrajectoryPoints(pointsB);
-  if (a.length === 0 || b.length === 0) return null;
-  let best = { indexA: 0, indexB: 0, distanceSq: Infinity };
-  a.forEach((pa, indexA) => {
-    b.forEach((pb, indexB) => {
-      const d = (pa.x - pb.x) ** 2 + (pa.y - pb.y) ** 2 + (pa.z - pb.z) ** 2;
-      if (d < best.distanceSq) best = { indexA, indexB, distanceSq: d };
-    });
-  });
-  return best;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function computePointSpeedKmh(points: any[], index: number): number | null {
-  const normalized = normalizeTrajectoryPoints(points);
-  if (normalized.length < 2 || !normalized.every((p) => p.t != null)) return null;
-  const cur = Math.max(0, Math.min(normalized.length - 1, index));
-  const start = cur === 0 ? normalized[0] : normalized[cur - 1];
-  const end = cur === normalized.length - 1 ? normalized[normalized.length - 1] : normalized[Math.min(cur + 1, normalized.length - 1)];
-  const dt = Math.max(1e-6, (end.t as number) - (start.t as number));
-  const ms = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2 + (end.z - start.z) ** 2) / dt;
-  return ms * 3.6;
-}
-
-function formatSpeedKmh(speed: number | null | undefined) {
-  if (speed == null || !Number.isFinite(speed)) return '시간 정보 없음';
-  return `${speed.toFixed(1)} km/h`;
-}
-
-function computeOrbitStateFromFrame(target: [number, number, number], framedPos: [number, number, number]): OrbitState {
-  const dx = framedPos[0] - target[0], dy = framedPos[1] - target[1], dz = framedPos[2] - target[2];
-  const distance = Math.min(CAMERA_MAX_DISTANCE, Math.max(CAMERA_MIN_DISTANCE, Math.sqrt(dx * dx + dy * dy + dz * dz)));
+// frame_idx(t) 기준 보간 샘플.
+function samplePath(points: number[][], frame: number): SampleResult {
+  const n = points.length;
+  if (n === 0) return { position: [0, 0, 0], next: [0, 0, -1] };
+  if (n === 1) { const p = points[0]; return { position: [p[0], p[1], p[2]], next: [p[0], p[1], p[2] - 1] }; }
+  const t0 = points[0][3] ?? 0;
+  const t1 = points[n - 1][3] ?? (n - 1);
+  const target = Math.max(t0, Math.min(t1, t0 + frame));
+  let i = 0;
+  while (i < n - 2 && (points[i + 1][3] ?? i + 1) < target) i++;
+  const cur = points[i], nxt = points[Math.min(i + 1, n - 1)];
+  const ct = cur[3] ?? i, nt = nxt[3] ?? (i + 1);
+  const dt = Math.max(1e-6, nt - ct);
+  const lt = Math.max(0, Math.min(1, (target - ct) / dt));
   return {
-    theta: Math.atan2(dz, dx),
-    phi: Math.min(CAMERA_MAX_PHI, Math.max(CAMERA_MIN_PHI, Math.acos(dy / distance))),
-    distance,
-    target: [target[0], target[1], target[2]],
+    position: [cur[0] + (nxt[0] - cur[0]) * lt, cur[1] + (nxt[1] - cur[1]) * lt, cur[2] + (nxt[2] - cur[2]) * lt],
+    next: [nxt[0], nxt[1], nxt[2]],
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function applyOrbitStateToCamera(state: OrbitState, camera: any, controls: any) {
-  const { theta, phi, distance, target } = state;
-  safeSetGsplatCameraPosition(camera, target[0] + distance * Math.sin(phi) * Math.cos(theta), target[1] + distance * Math.cos(phi), target[2] + distance * Math.sin(phi) * Math.sin(theta));
-  safeSetGsplatTarget(controls, target[0], target[1], target[2]);
+function vehicleColor(spec: VehicleSpec, dynamicIndex: number): number {
+  return spec.id === 'ego' ? EGO_COLOR : DYNAMIC_COLORS[dynamicIndex % DYNAMIC_COLORS.length];
+}
+
+async function safeFetchJson(url: string) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`fetch "${url}" → ${res.status}`);
+  return res.json();
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function panCameraByScreenDelta(THREE: any, orbitState: OrbitState, camera: any, controls: any, deltaX: number, deltaY: number) {
-  const position = safeReadGsplatPosition(camera);
-  if (!position) return;
-  const pos = new THREE.Vector3(position.x, position.y, position.z);
-  const tgt = new THREE.Vector3(...orbitState.target);
-  const forward = new THREE.Vector3().subVectors(tgt, pos).normalize();
-  const worldUp = new THREE.Vector3(0, 1, 0);
-  const right = new THREE.Vector3().crossVectors(forward, worldUp).normalize();
-  const up = new THREE.Vector3().crossVectors(right, forward).normalize();
-  const scale = orbitState.distance * CAMERA_PAN_MULTIPLIER;
-  const movement = new THREE.Vector3().addScaledVector(right, -deltaX * scale).addScaledVector(up, deltaY * scale);
-  orbitState.target = [orbitState.target[0] + movement.x, orbitState.target[1] + movement.y, orbitState.target[2] + movement.z];
-  applyOrbitStateToCamera(orbitState, camera, controls);
+function toSpecs(list: any[]): VehicleSpec[] {
+  return (Array.isArray(list) ? list : [])
+    .map((v) => ({ id: String(v.id ?? ''), cls: String(v.class ?? v.cls ?? 'car'), points: v.points ?? [] }))
+    .filter((v) => v.id === 'ego' || (VEHICLE_CLASSES.has(v.cls) && (v.points?.length || 0) >= MIN_TRACK_POINTS));
 }
 
-function dollyCameraTowardTarget(orbitState: OrbitState, camera: unknown, controls: unknown, deltaY: number) {
-  orbitState.distance = Math.min(CAMERA_MAX_DISTANCE, Math.max(CAMERA_MIN_DISTANCE, orbitState.distance * (deltaY > 0 ? CAMERA_DOLLY_OUT : CAMERA_DOLLY_IN)));
-  applyOrbitStateToCamera(orbitState, camera, controls);
+async function loadVehiclesJson(url: string | undefined): Promise<VehicleSpec[] | null> {
+  if (!url) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await safeFetchJson(url);
+    if (Array.isArray(data?.vehicles)) return toSpecs(data.vehicles);
+    if (Array.isArray(data)) return [{ id: 'A', cls: 'car', points: data }];
+    if (Array.isArray(data?.points)) return [{ id: 'A', cls: 'car', points: data.points }];
+    return null;
+  } catch { return null; }
 }
 
+// .splat(32 byte/점: xyz f32 + scale f32x3 + rgba u8 + quat u8x4) → THREE.Points
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getTrajectoryDuration(points: any[]) {
-  const normalized = normalizeTrajectoryPoints(points);
-  if (normalized.length <= 1) return normalized.length;
-  if (normalized.every((p) => p.t != null)) {
-    const duration = (normalized[normalized.length - 1].t as number) - (normalized[0].t as number);
-    return duration > 0 ? duration : normalized.length - 1;
+async function loadSplatAsPoints(THREE: any, url: string | undefined) {
+  if (!url) return null;
+  try {
+    const buf = await (await fetch(url)).arrayBuffer();
+    const n = Math.floor(buf.byteLength / 32);
+    const dv = new DataView(buf);
+    const positions = new Float32Array(n * 3);
+    const colors = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const b = i * 32;
+      positions[i * 3] = dv.getFloat32(b, true);
+      positions[i * 3 + 1] = dv.getFloat32(b + 4, true);
+      positions[i * 3 + 2] = dv.getFloat32(b + 8, true);
+      colors[i * 3] = dv.getUint8(b + 24) / 255;
+      colors[i * 3 + 1] = dv.getUint8(b + 25) / 255;
+      colors[i * 3 + 2] = dv.getUint8(b + 26) / 255;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const mat = new THREE.PointsMaterial({ size: SPLAT_POINT_SIZE, sizeAttenuation: true, vertexColors: true });
+    // eslint-disable-next-line no-console
+    console.log(`[Viewer3D] splat → ${n} points`);
+    return new THREE.Points(geo, mat);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[Viewer3D] splat parse failed', e);
+    return null;
   }
-  return normalized.length - 1;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function samplePath(points: any[], progressOrTime: number): SampleResult {
-  const normalized = normalizeTrajectoryPoints(points);
-  if (normalized.length === 0) return { position: [0, 0, 0], next: [0, 0, -1] };
-  if (normalized.length === 1) {
-    const p = normalized[0];
-    return { position: [p.x, p.y, p.z], next: [p.x, p.y, p.z - 1] };
+function createFallbackCar(THREE: any, color: number) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.45, 0.9), new THREE.MeshStandardMaterial({ color }));
+  body.position.y = 0.3; group.add(body);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.35, 0.8), new THREE.MeshStandardMaterial({ color }));
+  cabin.position.set(0, 0.6, 0); group.add(cabin);
+  return group;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeVehicleModel(THREE: any, model: any) {
+  const wrapper = new THREE.Group();
+  wrapper.add(model);
+  const box = new THREE.Box3().setFromObject(model);
+  const size = new THREE.Vector3(); const center = new THREE.Vector3();
+  box.getSize(size); box.getCenter(center);
+  const maxDim = Math.max(size.x || 0, size.y || 0, size.z || 0);
+  const scale = maxDim > 0 ? 1.0 / maxDim : 1;   // 단위 크기로 정규화 (씬 비례 스케일은 호출부에서)
+  model.position.sub(center);
+  model.scale.multiplyScalar(scale);
+  const scaledBox = new THREE.Box3().setFromObject(model);
+  if (Number.isFinite(scaledBox.min.y)) model.position.y -= scaledBox.min.y;  // 바닥을 y=0에
+  return wrapper;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadVehicleModel({ THREE, GLTFLoader, url, fallbackColor }: { THREE: any; GLTFLoader: any; url: string; fallbackColor: number }) {
+  try {
+    const loader = new GLTFLoader();
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('model fetch failed');
+    const arrayBuffer = await res.arrayBuffer();
+    const basePath = url.slice(0, url.lastIndexOf('/') + 1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const gltf = await new Promise<any>((resolve, reject) => loader.parse(arrayBuffer, basePath, resolve, reject));
+    const raw = gltf?.scene?.clone ? gltf.scene.clone(true) : null;
+    if (!raw) return { model: createFallbackCar(THREE, fallbackColor) };
+    return { model: normalizeVehicleModel(THREE, raw) };
+  } catch {
+    return { model: createFallbackCar(THREE, fallbackColor) };
   }
-  const hasTs = normalized.every((p) => p.t != null);
-  if (hasTs) {
-    const startTime = normalized[0].t as number;
-    const endTime = normalized[normalized.length - 1].t as number;
-    const targetTime = Math.max(startTime, Math.min(endTime, startTime + progressOrTime));
-    let idx = 0;
-    while (idx < normalized.length - 2 && (normalized[idx + 1].t as number) < targetTime) idx++;
-    const cur = normalized[idx], nxt = normalized[Math.min(idx + 1, normalized.length - 1)];
-    const dt = Math.max(1e-6, (nxt.t as number) - (cur.t as number));
-    const localT = Math.max(0, Math.min(1, (targetTime - (cur.t as number)) / dt));
-    return { position: [cur.x + (nxt.x - cur.x) * localT, cur.y + (nxt.y - cur.y) * localT, cur.z + (nxt.z - cur.z) * localT], next: [nxt.x, nxt.y, nxt.z] };
-  }
-  const clamped = Math.max(0, Math.min(0.999999, progressOrTime));
-  const scaled = clamped * (normalized.length - 1);
-  const idx = Math.floor(scaled);
-  const localT = scaled - idx;
-  const cur = normalized[idx], nxt = normalized[Math.min(idx + 1, normalized.length - 1)];
-  return { position: [cur.x + (nxt.x - cur.x) * localT, cur.y + (nxt.y - cur.y) * localT, cur.z + (nxt.z - cur.z) * localT], next: [nxt.x, nxt.y, nxt.z] };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -349,164 +226,7 @@ function disposeThreeObject(root: any) {
   });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function createFallbackCar(THREE: any, color: number) {
-  const group = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.45, 0.9), new THREE.MeshStandardMaterial({ color }));
-  body.position.y = 0.3;
-  group.add(body);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.35, 0.8), new THREE.MeshStandardMaterial({ color }));
-  cabin.position.set(0, 0.6, 0);
-  group.add(cabin);
-  [[-0.55, 0.1, 0.48], [0.55, 0.1, 0.48], [-0.55, 0.1, -0.48], [0.55, 0.1, -0.48]].forEach(([x, y, z]) => {
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.18, 20), new THREE.MeshStandardMaterial({ color: 0x111827 }));
-    wheel.rotation.z = Math.PI / 2;
-    wheel.position.set(x, y, z);
-    group.add(wheel);
-  });
-  return group;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normalizeVehicleModel(THREE: any, model: any) {
-  const wrapper = new THREE.Group();
-  wrapper.add(model);
-  const box = new THREE.Box3().setFromObject(model);
-  const size = new THREE.Vector3();
-  const center = new THREE.Vector3();
-  box.getSize(size);
-  box.getCenter(center);
-  const maxDim = Math.max(size.x || 0, size.y || 0, size.z || 0);
-  const scale = maxDim > 0 ? 1.9 / maxDim : 1;
-  model.position.sub(center);
-  model.scale.multiplyScalar(scale);
-  const scaledBox = new THREE.Box3().setFromObject(model);
-  const minY = scaledBox.min.y;
-  if (Number.isFinite(minY)) model.position.y -= minY;
-  return wrapper;
-}
-
-async function safeFetchJson(url: string) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`fetch "${url}" → ${res.status}`);
-  return res.json();
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function loadTrajectoryJson(url: string | undefined, fallbackData: any[]) {
-  if (!url) return { points: fallbackData, source: 'sample-no-url' };
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await safeFetchJson(url);
-    if (Array.isArray(data)) return { points: data, source: 'remote-json' };
-    if (Array.isArray(data?.points)) return { points: data.points, source: 'remote-json.points' };
-    if (Array.isArray(data?.trajectory)) return { points: data.trajectory, source: 'remote-json.trajectory' };
-    if (Array.isArray(data?.positions)) return { points: data.positions, source: 'remote-json.positions' };
-    return { points: fallbackData, source: 'sample-invalid-shape' };
-  } catch {
-    return { points: fallbackData, source: 'sample-fetch-error' };
-  }
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function loadSplatScene({ SPLAT, url, scene }: { SPLAT: any; url: string | undefined; scene: any }) {
-  if (!url) return { ok: false };
-  try {
-    await SPLAT.Loader.LoadAsync(url, scene, () => {});
-    return { ok: true };
-  } catch {
-    return { ok: false };
-  }
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function loadVehicleModel({ THREE, GLTFLoader, url, fallbackColor }: { THREE: any; GLTFLoader: any; url: string | undefined; fallbackColor: number }) {
-  if (!url) return { model: createFallbackCar(THREE, fallbackColor), source: 'fallback-no-url' };
-  try {
-    const loader = new GLTFLoader();
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('model fetch failed');
-    const arrayBuffer = await res.arrayBuffer();
-    const basePath = url.startsWith('blob:') ? '' : url.slice(0, url.lastIndexOf('/') + 1);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const gltf = await new Promise<any>((resolve, reject) => loader.parse(arrayBuffer, basePath, resolve, reject));
-    const rawModel = gltf?.scene?.clone ? gltf.scene.clone(true) : null;
-    if (!rawModel) return { model: createFallbackCar(THREE, fallbackColor), source: 'fallback-empty-scene' };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rawModel.traverse((obj: any) => { if (obj.isMesh) { obj.castShadow = true; obj.receiveShadow = true; } });
-    return { model: normalizeVehicleModel(THREE, rawModel), source: 'remote-model' };
-  } catch {
-    return { model: createFallbackCar(THREE, fallbackColor), source: 'fallback-load-error' };
-  }
-}
-
-// ─── vehicles.json 로딩 (ego + 동적차량 N대) ────────────────────────────────
-
-interface VehicleSpec { id: string; cls: string; points: unknown[] }
-
-const VEHICLE_CLASSES = new Set(['car', 'truck', 'bus', 'motorcycle', 'bicycle']);
-const MIN_TRACK_POINTS = 5;
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function _toSpecs(list: any[]): VehicleSpec[] {
-  return (Array.isArray(list) ? list : [])
-    .map((v) => ({ id: String(v.id ?? ''), cls: String(v.class ?? v.cls ?? 'car'), points: v.points ?? [] }))
-    .filter((v) => v.id === 'ego' || (VEHICLE_CLASSES.has(v.cls) && (v.points?.length || 0) >= MIN_TRACK_POINTS));
-}
-
-// vehicles.json: { vehicles: [{id, class, points:[[x,y,z,frame_idx],...]}] }.
-// Falls back to a single-trajectory shape, or null → caller uses the demo A/B.
-async function loadVehiclesJson(url: string | undefined): Promise<VehicleSpec[] | null> {
-  if (!url) return null;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await safeFetchJson(url);
-    if (Array.isArray(data?.vehicles)) return _toSpecs(data.vehicles);
-    if (Array.isArray(data)) return [{ id: 'A', cls: 'car', points: data }];
-    if (Array.isArray(data?.points)) return [{ id: 'A', cls: 'car', points: data.points }];
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// 차량별 색상(궤적 라인 + fallback 박스): ego는 초록, 나머지는 팔레트 순환.
-const EGO_COLOR = 0x22c55e;
-const DYNAMIC_COLORS = [0x2563eb, 0xef4444, 0xf59e0b, 0xa855f7, 0x06b6d4, 0xec4899, 0x84cc16, 0xf97316];
-
-function _vehicleColor(spec: VehicleSpec, dynamicIndex: number): number {
-  return spec.id === 'ego' ? EGO_COLOR : DYNAMIC_COLORS[dynamicIndex % DYNAMIC_COLORS.length];
-}
-
-// 전체 차량 포인트를 합쳐 카메라 프레이밍에 사용.
-function _mergeAllPoints(specs: VehicleSpec[]): unknown[] {
-  const out: unknown[] = [];
-  specs.forEach((s) => { if (Array.isArray(s.points)) out.push(...s.points); });
-  return out;
-}
-
-// ─── HTML 폴백 (Three.js 로드 전 표시) ───────────────────────────────────────
-
-function HtmlFallbackPreview({ showVehicleA, showVehicleB, showAccidentPoint, showTrajectoryLines }: {
-  showVehicleA: boolean; showVehicleB: boolean; showAccidentPoint: boolean; showTrajectoryLines: boolean;
-}) {
-  return (
-    <div className="absolute inset-0 z-30 overflow-hidden rounded-2xl bg-[radial-gradient(circle_at_top,_#1e293b,_#020617)]">
-      <div className="absolute inset-0 opacity-35" style={{ backgroundImage: 'linear-gradient(rgba(148,163,184,0.24) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.24) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
-      {showTrajectoryLines && (
-        <svg className="absolute inset-0 h-full w-full" viewBox="0 0 1000 760" preserveAspectRatio="none">
-          <polyline points="250,430 340,420 430,405 520,385 615,365 710,345" fill="none" stroke="#60a5fa" strokeWidth="5" />
-          <polyline points="720,280 650,320 590,355 545,390 515,425 500,470" fill="none" stroke="#f87171" strokeWidth="5" />
-        </svg>
-      )}
-      {showVehicleA && <div className="absolute left-[46%] top-[50%] h-10 w-20 -translate-x-1/2 -translate-y-1/2 rounded-xl bg-[#e6f5f2]0/85 shadow-xl" />}
-      {showVehicleB && <div className="absolute left-[58%] top-[56%] h-10 w-20 -translate-x-1/2 -translate-y-1/2 rounded-xl bg-red-500/85 shadow-xl" />}
-      {showAccidentPoint && <div className="absolute left-[51.5%] top-[61%] h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-400" />}
-    </div>
-  );
-}
-
-// ─── ViewerPane (Three.js + gsplat 렌더러) ────────────────────────────────────
+// ─── ViewerPane (Three.js 단일 씬: 점구름 + 차량 + OrbitControls) ─────────────
 
 interface ViewerPaneProps {
   splatUrl?: string;
@@ -520,110 +240,68 @@ interface ViewerPaneProps {
   onStatusChange: (s: { phase: string; message: string }) => void;
   onLoadedMeta: (m: Record<string, unknown>) => void;
 }
-
-interface ViewerPaneRef {
-  focusScene: () => void;
-}
+interface ViewerPaneRef { focusScene: () => void }
 
 const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPane(props, ref) {
-  const {
-    splatUrl, vehiclesUrl,
-    showVehicles, showEgo, showTrajectoryLines,
-    autoPlay, playbackSpeed, playbackLoop, onStatusChange, onLoadedMeta,
-  } = props;
+  const { splatUrl, vehiclesUrl, showVehicles, showEgo, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop, onStatusChange, onLoadedMeta } = props;
 
   const wrapRef = useRef<HTMLDivElement>(null);
-  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const engineRef = useRef<any>(null);
-  const orbitStateRef = useRef<OrbitState | null>(null);
   const uiStateRef = useRef({ showVehicles, showEgo, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop });
-
-  // 샘플/실데이터 차량이 항상 있으므로 항상 3D 엔진 실행
-  const noAssetsProvided = false;
 
   useEffect(() => {
     uiStateRef.current = { showVehicles, showEgo, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop };
   }, [showVehicles, showEgo, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop]);
 
   useEffect(() => {
-    if (noAssetsProvided) {
-      onLoadedMeta({});
-      onStatusChange({ phase: 'idle', message: '' });
-      return;
-    }
-
     let disposed = false;
     let rafId = 0;
     let resizeHandler: (() => void) | null = null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let localRendererCanvas: any = null;
 
     async function init() {
-      if (!wrapRef.current || !overlayCanvasRef.current) return;
+      if (!wrapRef.current || !canvasRef.current) return;
       onStatusChange({ phase: 'loading', message: '뷰어 로딩 중' });
-
       try {
-        const [SPLAT, THREE, gltfModule] = await Promise.all([
-          import('gsplat'),
+        const [THREE, gltfMod, ctrlMod] = await Promise.all([
           import('three'),
           import('three/examples/jsm/loaders/GLTFLoader.js'),
+          import('three/examples/jsm/controls/OrbitControls.js'),
         ]);
         if (disposed) return;
-
-        const { GLTFLoader } = gltfModule;
+        const { GLTFLoader } = gltfMod;
+        const { OrbitControls } = ctrlMod;
         const container = wrapRef.current!;
-        const overlayCanvas = overlayCanvasRef.current!;
+        const canvas = canvasRef.current!;
 
-        const splatRenderer = new SPLAT.WebGLRenderer();
-        localRendererCanvas = splatRenderer.canvas;
-        localRendererCanvas.className = 'absolute inset-0 h-full w-full';
-        localRendererCanvas.style.cssText = 'width:100%;height:100%;pointer-events:auto;background:radial-gradient(circle at top,#111827,#020617);touch-action:none;';
-        container.prepend(localRendererCanvas);
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio || 1);
+        renderer.setClearColor(0x0a0f1a, 1);
 
-        const splatScene = new SPLAT.Scene();
-        const splatCamera = new SPLAT.Camera();
-        const splatControls = new SPLAT.OrbitControls(splatCamera, splatRenderer.canvas);
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 5000);
+        const controls = new OrbitControls(camera, canvas);
+        controls.enableDamping = true; controls.dampingFactor = 0.08;
 
-        const overlayRenderer = new THREE.WebGLRenderer({ canvas: overlayCanvas, antialias: true, alpha: true });
-        overlayRenderer.setPixelRatio(window.devicePixelRatio || 1);
-        overlayRenderer.setClearColor(0x000000, 0);
-
-        const overlayScene = new THREE.Scene();
-        const overlayCamera = new THREE.PerspectiveCamera(55, 1, 0.01, 500);
-        overlayScene.add(new THREE.AmbientLight(0xffffff, 1.3));
-        const dir = new THREE.DirectionalLight(0xffffff, 1.2);
-        dir.position.set(6, 10, 5);
-        overlayScene.add(dir);
-        const fill = new THREE.DirectionalLight(0xffffff, 0.5);
-        fill.position.set(-6, 4, -3);
-        overlayScene.add(fill);
-        overlayScene.add(new THREE.GridHelper(30, 30, 0x64748b, 0x334155));
-        const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: 0x0f172a, transparent: true, opacity: 0.35 }));
-        ground.rotation.x = -Math.PI / 2;
-        overlayScene.add(ground);
+        scene.add(new THREE.AmbientLight(0xffffff, 1.25));
+        const dir = new THREE.DirectionalLight(0xffffff, 1.1); dir.position.set(5, 10, 6); scene.add(dir);
 
         const trajectoryGroup = new THREE.Group();
         const vehicleGroup = new THREE.Group();
-        const markerGroup = new THREE.Group();
-        overlayScene.add(trajectoryGroup, vehicleGroup, markerGroup);
+        scene.add(trajectoryGroup, vehicleGroup);
 
-        // ── vehicles.json(ego + 동적 N대) + 기본 GLB 2종 + splat 로드 ──────
-        const [vehSpecsRaw, carBaseRes, egoBaseRes, splatResult] = await Promise.all([
+        const [vehSpecsRaw, carBaseRes, egoBaseRes, splatPoints] = await Promise.all([
           loadVehiclesJson(vehiclesUrl),
-          loadVehicleModel({ THREE, GLTFLoader, url: DEMO_VEHICLE_URL_A, fallbackColor: 0x2563eb }),
-          loadVehicleModel({ THREE, GLTFLoader, url: DEMO_VEHICLE_URL_B, fallbackColor: EGO_COLOR }),
-          loadSplatScene({ SPLAT, url: splatUrl, scene: splatScene }),
+          loadVehicleModel({ THREE, GLTFLoader, url: DEMO_VEHICLE_URL_CAR, fallbackColor: 0x2563eb }),
+          loadVehicleModel({ THREE, GLTFLoader, url: DEMO_VEHICLE_URL_EGO, fallbackColor: EGO_COLOR }),
+          loadSplatAsPoints(THREE, splatUrl),
         ]);
         if (disposed) return;
+        if (splatPoints) scene.add(splatPoints);
 
-        // vehicles.json이 없으면 내장 데모 A/B로 폴백.
-        const specs: VehicleSpec[] = vehSpecsRaw && vehSpecsRaw.length
-          ? vehSpecsRaw
-          : [
-              { id: 'A', cls: 'car', points: sampleTrajectoryA },
-              { id: 'B', cls: 'car', points: sampleTrajectoryB },
-            ];
+        const specs: VehicleSpec[] = vehSpecsRaw && vehSpecsRaw.length ? vehSpecsRaw
+          : [{ id: 'A', cls: 'car', points: sampleTrajectoryA }, { id: 'B', cls: 'car', points: sampleTrajectoryB }];
 
         const carBase = carBaseRes.model;
         const egoBase = egoBaseRes.model;
@@ -631,177 +309,107 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const vehicles: any[] = specs.map((spec) => {
           const isEgo = spec.id === 'ego';
-          const color = _vehicleColor(spec, isEgo ? 0 : dynIdx++);
+          const color = vehicleColor(spec, isEgo ? 0 : dynIdx++);
           const model = (isEgo ? egoBase : carBase).clone(true);
-          model.rotation.y += Math.PI;
           model.visible = isEgo ? uiStateRef.current.showEgo : uiStateRef.current.showVehicles;
           vehicleGroup.add(model);
+          const pts = smoothPoints(spec.points);
           const line = new THREE.Line(
-            new THREE.BufferGeometry().setFromPoints(
-              (spec.points as unknown[]).map((p) => { const c = getPointComponents(p); return new THREE.Vector3(c.x, c.y, c.z); })
-            ),
+            new THREE.BufferGeometry().setFromPoints(pts.map((p) => new THREE.Vector3(p[0], p[1], p[2]))),
             new THREE.LineBasicMaterial({ color })
           );
           trajectoryGroup.add(line);
-          return { id: spec.id, isEgo, points: spec.points, model, line };
+          const first = pts.length ? (pts[0][3] ?? 0) : 0;
+          const last = pts.length ? (pts[pts.length - 1][3] ?? first) : 0;
+          return { id: spec.id, isEgo, points: pts, model, line, first, last };
         });
 
-        const allPoints = _mergeAllPoints(specs);
-        const framedTarget = getTrajectoryCenter(allPoints, []);
-        const framedPosition = getFramedCameraPosition(framedTarget, allPoints, []);
+        // 카메라 프레이밍: 점구름 bbox + 차량 포인트.
+        const box = new THREE.Box3();
+        if (splatPoints) { splatPoints.geometry.computeBoundingBox(); if (splatPoints.geometry.boundingBox) box.union(splatPoints.geometry.boundingBox); }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        vehicles.forEach((v: any) => v.points.forEach((p: number[]) => box.expandByPoint(new THREE.Vector3(p[0], p[1], p[2]))));
+        if (box.isEmpty()) box.set(new THREE.Vector3(-5, -1, -5), new THREE.Vector3(5, 3, 5));
+        const center = new THREE.Vector3(); box.getCenter(center);
+        const size = new THREE.Vector3(); box.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z, 1);
 
-        orbitStateRef.current = computeOrbitStateFromFrame(framedTarget, framedPosition);
-        applyOrbitStateToCamera(orbitStateRef.current, splatCamera, splatControls);
-        overlayCamera.position.set(framedPosition[0], framedPosition[1], framedPosition[2]);
-        overlayCamera.lookAt(framedTarget[0], framedTarget[1], framedTarget[2]);
+        // 차량 크기를 씬에 비례하게 (네이티브=비미터) + 도로 평면 y 추정.
+        const carScale = maxDim * VEHICLE_SCALE_FRAC;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        vehicles.forEach((v: any) => v.model.scale.setScalar(carScale));
+        const dynY: number[] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        vehicles.forEach((v: any) => { if (!v.isEgo) v.points.forEach((p: number[]) => dynY.push(p[1])); });
+        dynY.sort((a, b) => a - b);
+        const groundY = dynY.length ? dynY[Math.floor(dynY.length / 2)] : center.y;
 
-        // 마우스/터치 컨트롤
-        const cs = { mode: null as string | null, pointerId: null as number | null, lastX: 0, lastY: 0 };
+        // 격자를 씬 크기에 맞춰 도로 평면에 배치 (고정 80×80은 씬 대비 너무 큼).
+        const grid = new THREE.GridHelper(maxDim * 1.5, 30, 0x334155, 0x1f2937);
+        grid.position.set(center.x, groundY, center.z);
+        scene.add(grid);
 
-        const onPointerDown = (e: PointerEvent) => {
-          if (!orbitStateRef.current) return;
-          cs.mode = e.button === 0 && !e.shiftKey ? 'rotate' : e.button === 2 || (e.button === 0 && e.shiftKey) ? 'pan' : null;
-          if (!cs.mode) return;
-          cs.pointerId = e.pointerId; cs.lastX = e.clientX; cs.lastY = e.clientY;
-          try { localRendererCanvas.setPointerCapture(e.pointerId); } catch (_) {}
-          e.preventDefault(); e.stopPropagation();
+        const focusScene = () => {
+          controls.target.copy(center);
+          camera.position.set(center.x, center.y + maxDim * 0.45, center.z + maxDim * 1.1);
+          camera.near = Math.max(0.01, maxDim / 1000); camera.far = maxDim * 40;
+          camera.updateProjectionMatrix(); controls.update();
         };
-        const onPointerMove = (e: PointerEvent) => {
-          if (!orbitStateRef.current || !cs.mode) return;
-          if (cs.pointerId !== null && e.pointerId !== cs.pointerId) return;
-          const dx = e.clientX - cs.lastX, dy = e.clientY - cs.lastY;
-          cs.lastX = e.clientX; cs.lastY = e.clientY;
-          if (cs.mode === 'rotate') {
-            orbitStateRef.current.theta -= dx * CAMERA_ROTATE_SPEED;
-            orbitStateRef.current.phi = Math.min(CAMERA_MAX_PHI, Math.max(CAMERA_MIN_PHI, orbitStateRef.current.phi - dy * CAMERA_ROTATE_SPEED));
-            applyOrbitStateToCamera(orbitStateRef.current, splatCamera, splatControls);
-          } else {
-            panCameraByScreenDelta(THREE, orbitStateRef.current, splatCamera, splatControls, dx, dy);
-          }
-          e.preventDefault();
-        };
-        const clearPtr = () => { cs.mode = null; cs.pointerId = null; };
-        const onPointerUp = () => { try { localRendererCanvas.releasePointerCapture(cs.pointerId!); } catch (_) {} clearPtr(); };
-        const onWheel = (e: WheelEvent) => { if (!orbitStateRef.current) return; e.preventDefault(); dollyCameraTowardTarget(orbitStateRef.current, splatCamera, splatControls, e.deltaY); };
-        const onContextMenu = (e: Event) => e.preventDefault();
-        const onKeyDown = (e: KeyboardEvent) => {
-          if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
-          e.preventDefault(); // 페이지 스크롤 방지
-          if (!orbitStateRef.current) return;
-          const state = orbitStateRef.current;
-          const pos = safeReadGsplatPosition(splatCamera);
-          if (!pos) return;
-          const forward = new THREE.Vector3(state.target[0] - pos.x, 0, state.target[2] - pos.z).normalize();
-          const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
-          const ms = state.distance * 0.05;
-          const move = new THREE.Vector3();
-          if (e.key === 'ArrowUp') move.addScaledVector(forward, ms);
-          if (e.key === 'ArrowDown') move.addScaledVector(forward, -ms);
-          if (e.key === 'ArrowLeft') move.addScaledVector(right, -ms);
-          if (e.key === 'ArrowRight') move.addScaledVector(right, ms);
-          state.target = [state.target[0] + move.x, state.target[1], state.target[2] + move.z];
-          applyOrbitStateToCamera(state, splatCamera, splatControls);
-        };
-
-        localRendererCanvas.addEventListener('pointerdown', onPointerDown);
-        localRendererCanvas.addEventListener('pointermove', onPointerMove);
-        localRendererCanvas.addEventListener('pointerup', onPointerUp);
-        localRendererCanvas.addEventListener('pointercancel', clearPtr);
-        localRendererCanvas.addEventListener('wheel', onWheel, { passive: false });
-        localRendererCanvas.addEventListener('contextmenu', onContextMenu);
-        window.addEventListener('keydown', onKeyDown);
+        focusScene();
 
         const resize = () => {
-          const rect = container.getBoundingClientRect();
-          const w = Math.max(1, Math.floor(rect.width)), h = Math.max(1, Math.floor(rect.height));
-          splatRenderer.setSize(w, h);
-          overlayRenderer.setSize(w, h, false);
-          overlayCamera.aspect = w / h;
-          overlayCamera.updateProjectionMatrix();
+          const r = container.getBoundingClientRect();
+          const w = Math.max(1, Math.floor(r.width)), h = Math.max(1, Math.floor(r.height));
+          renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
         };
-        resize();
-        resizeHandler = resize;
-        window.addEventListener('resize', resizeHandler);
+        resize(); resizeHandler = resize; window.addEventListener('resize', resize);
 
         const startTimeRef = { current: performance.now() };
         const pausePlayheadRef = { current: 0 };
         const lastAutoPlayRef = { current: uiStateRef.current.autoPlay };
-
-        engineRef.current = {
-          canvasHandlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel: clearPtr, onWheel, onContextMenu },
-          keyHandler: onKeyDown,
-          focusScene: () => {
-            orbitStateRef.current = computeOrbitStateFromFrame(framedTarget, framedPosition);
-            applyOrbitStateToCamera(orbitStateRef.current, splatCamera, splatControls);
-            overlayCamera.position.set(framedPosition[0], framedPosition[1], framedPosition[2]);
-            overlayCamera.lookAt(framedTarget[0], framedTarget[1], framedTarget[2]);
-          },
-          splatRenderer, splatScene, splatCamera, splatControls,
-          overlayRenderer, overlayScene, overlayCamera,
-          vehicles, ground, startTimeRef, pausePlayheadRef, lastAutoPlayRef,
-          hasSplat: splatResult.ok,
-        };
+        engineRef.current = { renderer, scene, camera, controls, vehicles, grid, groundY, focusScene, startTimeRef, pausePlayheadRef, lastAutoPlayRef };
 
         onLoadedMeta({
           vehicleCount: vehicles.filter((v: { isEgo: boolean }) => !v.isEgo).length,
           hasEgo: vehicles.some((v: { isEgo: boolean }) => v.isEgo),
+          hasSplat: !!splatPoints,
         });
         onStatusChange({ phase: 'ready', message: '뷰어 준비 완료' });
 
         const animate = (now: number) => {
           if (disposed || !engineRef.current) return;
-          const engine = engineRef.current;
-          const state = uiStateRef.current;
-
-          if (engine.hasSplat) {
-            copyGsplatCameraToThreeCamera(engine.splatCamera, engine.overlayCamera);
-          } else if (orbitStateRef.current) {
-            const s = orbitStateRef.current;
-            engine.overlayCamera.position.set(
-              s.target[0] + s.distance * Math.sin(s.phi) * Math.cos(s.theta),
-              s.target[1] + s.distance * Math.cos(s.phi),
-              s.target[2] + s.distance * Math.sin(s.phi) * Math.sin(s.theta)
-            );
-            engine.overlayCamera.lookAt(s.target[0], s.target[1], s.target[2]);
+          const e = engineRef.current; const st = uiStateRef.current;
+          if (e.lastAutoPlayRef.current !== st.autoPlay) {
+            if (st.autoPlay) e.startTimeRef.current = now - (e.pausePlayheadRef.current / Math.max(0.0001, st.playbackSpeed)) * 1000;
+            e.lastAutoPlayRef.current = st.autoPlay;
           }
+          const baseElapsed = st.autoPlay ? ((now - e.startTimeRef.current) / 1000) * st.playbackSpeed : e.pausePlayheadRef.current;
+          e.pausePlayheadRef.current = baseElapsed;
 
-          if (engine.lastAutoPlayRef.current !== state.autoPlay) {
-            if (state.autoPlay) engine.startTimeRef.current = now - (engine.pausePlayheadRef.current / Math.max(0.0001, state.playbackSpeed)) * 1000;
-            engine.lastAutoPlayRef.current = state.autoPlay;
-          }
-
-          const baseElapsed = state.autoPlay ? ((now - engine.startTimeRef.current) / 1000) * state.playbackSpeed : engine.pausePlayheadRef.current;
-          engine.pausePlayheadRef.current = baseElapsed;
-
-          // 공통 타임라인: points의 t = frame_idx. ~10fps로 재생.
-          const FRAME_FPS = 10;
+          let dur = 1;
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let globalDuration = 1;
+          e.vehicles.forEach((v: any) => { if (v.points.length) { const last = v.points[v.points.length - 1][3]; if (last != null) dur = Math.max(dur, last); } });
+          const frames = baseElapsed * FRAME_FPS;
+          const sampleInput = st.playbackLoop ? frames % dur : Math.min(frames, dur);
+
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          engine.vehicles.forEach((v: any) => {
-            const pts = v.points;
-            if (pts && pts.length) {
-              const last = getPointComponents(pts[pts.length - 1]).t;
-              if (last != null) globalDuration = Math.max(globalDuration, last);
+          e.vehicles.forEach((v: any) => {
+            const s = samplePath(v.points, sampleInput - v.first);
+            // 트랙 활성 구간에서만 표시 (시작 전/종료 후엔 숨김 → 정지상태로 남지 않음).
+            const active = sampleInput >= v.first - 0.5 && sampleInput <= v.last + 0.5;
+            v.model.visible = active && (v.isEgo ? st.showEgo : st.showVehicles);
+            v.line.visible = st.showTrajectoryLines;
+            // 모든 차량을 도로 평면(groundY)에 올림 — ego(카메라 높이) 부유 + y 지터 제거.
+            v.model.position.set(s.position[0], e.groundY, s.position[2]);
+            const dx = s.next[0] - s.position[0], dz = s.next[2] - s.position[2];
+            if (dx * dx + dz * dz > 1e-6) {
+              v.model.lookAt(s.next[0], e.groundY, s.next[2]);
+              if (v.isEgo) v.model.rotateY(Math.PI);  // ego GLB 전방축 보정
             }
           });
-          const elapsedFrames = baseElapsed * FRAME_FPS;
-          const sampleInput = state.playbackLoop
-            ? elapsedFrames % globalDuration
-            : Math.min(elapsedFrames, globalDuration);
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          engine.vehicles.forEach((v: any) => {
-            const first = v.points.length ? (getPointComponents(v.points[0]).t ?? 0) : 0;
-            const s = samplePath(v.points, sampleInput - first);
-            v.model.visible = v.isEgo ? state.showEgo : state.showVehicles;
-            v.line.visible = state.showTrajectoryLines;
-            v.model.position.set(s.position[0], s.position[1], s.position[2]);
-            v.model.lookAt(s.next[0], s.position[1], s.next[2]);
-          });
-
-          if (engine.hasSplat) engine.splatRenderer.render(engine.splatScene, engine.splatCamera);
-          engine.overlayRenderer.render(engine.overlayScene, engine.overlayCamera);
+          e.controls.update();
+          e.renderer.render(e.scene, e.camera);
           rafId = requestAnimationFrame(animate);
         };
         rafId = requestAnimationFrame(animate);
@@ -814,56 +422,29 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
 
     return () => {
       disposed = true;
-      const engine = engineRef.current;
       if (rafId) cancelAnimationFrame(rafId);
       if (resizeHandler) window.removeEventListener('resize', resizeHandler);
-      if (engine) {
-        if (engine.keyHandler) window.removeEventListener('keydown', engine.keyHandler);
+      const e = engineRef.current;
+      if (e) {
         try {
-          const ch = engine.canvasHandlers;
-          if (localRendererCanvas && ch) {
-            localRendererCanvas.removeEventListener('pointerdown', ch.onPointerDown);
-            localRendererCanvas.removeEventListener('pointermove', ch.onPointerMove);
-            localRendererCanvas.removeEventListener('pointerup', ch.onPointerUp);
-            localRendererCanvas.removeEventListener('pointercancel', ch.onPointerCancel);
-            localRendererCanvas.removeEventListener('wheel', ch.onWheel);
-            localRendererCanvas.removeEventListener('contextmenu', ch.onContextMenu);
-          }
-          engine.splatControls?.dispose?.();
-          engine.overlayRenderer?.dispose?.();
+          e.controls?.dispose?.();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (engine.vehicles || []).forEach((v: any) => {
-            disposeThreeObject(v.model);
-            v.line?.geometry?.dispose?.();
-            v.line?.material?.dispose?.();
-          });
-          engine.ground?.geometry?.dispose?.();
-          engine.ground?.material?.dispose?.();
+          (e.vehicles || []).forEach((v: any) => { disposeThreeObject(v.model); v.line?.geometry?.dispose?.(); v.line?.material?.dispose?.(); });
+          e.scene?.traverse?.((o: any) => { if (o.isPoints) { o.geometry?.dispose?.(); o.material?.dispose?.(); } });
+          e.renderer?.dispose?.();
         } catch (_) {}
       }
       engineRef.current = null;
-      orbitStateRef.current = null;
-      if (localRendererCanvas?.parentNode) localRendererCanvas.parentNode.removeChild(localRendererCanvas);
     };
-  }, [splatUrl, vehiclesUrl, noAssetsProvided, onStatusChange, onLoadedMeta]);
+  }, [splatUrl, vehiclesUrl, onStatusChange, onLoadedMeta]);
 
-  useImperativeHandle(ref, () => ({
-    focusScene: () => engineRef.current?.focusScene?.(),
-  }));
+  useImperativeHandle(ref, () => ({ focusScene: () => engineRef.current?.focusScene?.() }));
 
   return (
     <div ref={wrapRef} className="relative h-[600px] overflow-hidden rounded-2xl border border-[#dae3dd] bg-[#0a1e14]">
-      {!noAssetsProvided && (
-        <canvas ref={overlayCanvasRef} className="pointer-events-none absolute inset-0 z-10 h-full w-full" />
-      )}
-      {noAssetsProvided && (
-        <HtmlFallbackPreview
-          showVehicleA={showVehicles} showVehicleB={showEgo}
-          showAccidentPoint={false} showTrajectoryLines={showTrajectoryLines}
-        />
-      )}
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" style={{ touchAction: 'none' }} />
       <div className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-xl bg-black/45 px-3 py-2 text-xs text-white backdrop-blur">
-        좌클릭 드래그 회전 · 방향키 이동 · 휠 줌
+        좌클릭 드래그 회전 · 우클릭 이동 · 휠 줌
       </div>
     </div>
   );
@@ -880,9 +461,7 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl }: Viewe
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [loadedMeta, setLoadedMeta] = useState<Record<string, unknown>>({});
 
-  // vehicles.json 우선, 없으면 legacy 단일 궤적 URL을 차량으로 사용.
   const resolvedVehiclesUrl = vehiclesUrl ?? trajectoryUrl;
-
   const viewerPaneRef = useRef<ViewerPaneRef>(null);
   const handleLoadedMeta = useCallback((meta: Record<string, unknown>) => setLoadedMeta(meta || {}), []);
 
@@ -900,16 +479,11 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl }: Viewe
               {status.message}
             </div>
           )}
-          {status.phase === 'error' && (
-            <div className="text-sm text-red-600">{status.message}</div>
-          )}
+          {status.phase === 'error' && <div className="text-sm text-red-600">{status.message}</div>}
         </div>
 
-        {/* 뷰어 + 컨트롤 패널 */}
         <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
-          {/* 컨트롤 패널 */}
           <div className="space-y-4">
-            {/* 표시 옵션 */}
             <div className="rounded-xl border border-[#dae3dd] p-4">
               <p className="text-sm font-semibold text-[#5a665e] mb-3">표시 옵션</p>
               <div className="space-y-2">
@@ -926,54 +500,32 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl }: Viewe
               </div>
             </div>
 
-            {/* 재생 옵션 */}
             <div className="rounded-xl border border-[#dae3dd] p-4">
               <p className="text-sm font-semibold text-[#5a665e] mb-3">재생 옵션</p>
               <div className="space-y-3">
-                <button
-                  onClick={() => setAutoPlay((v) => !v)}
-                  className="w-full rounded-lg border border-[#dae3dd] bg-white px-3 py-2 text-sm font-medium text-[#5a665e] hover:bg-[#f7f9f8] transition-colors"
-                >
+                <button onClick={() => setAutoPlay((v) => !v)} className="w-full rounded-lg border border-[#dae3dd] bg-white px-3 py-2 text-sm font-medium text-[#5a665e] hover:bg-[#f7f9f8]">
                   {autoPlay ? '⏸ 정지' : '▶ 재생'}
                 </button>
-                <button
-                  onClick={() => viewerPaneRef.current?.focusScene?.()}
-                  className="w-full rounded-lg border border-[#dae3dd] bg-white px-3 py-2 text-sm font-medium text-[#5a665e] hover:bg-[#f7f9f8] transition-colors"
-                >
+                <button onClick={() => viewerPaneRef.current?.focusScene?.()} className="w-full rounded-lg border border-[#dae3dd] bg-white px-3 py-2 text-sm font-medium text-[#5a665e] hover:bg-[#f7f9f8]">
                   화면 맞추기
                 </button>
                 <div>
-                  <div className="flex justify-between text-xs text-[#5a665e] mb-1">
-                    <span>재생 배속</span>
-                    <span>{playbackSpeed.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3" step="0.05"
-                    value={playbackSpeed}
-                    onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
-                    className="w-full accent-indigo-600"
-                  />
+                  <div className="flex justify-between text-xs text-[#5a665e] mb-1"><span>재생 배속</span><span>{playbackSpeed.toFixed(2)}x</span></div>
+                  <input type="range" min="0.1" max="3" step="0.05" value={playbackSpeed} onChange={(e) => setPlaybackSpeed(Number(e.target.value))} className="w-full accent-indigo-600" />
                 </div>
               </div>
             </div>
 
-            {/* 장면 정보 */}
             <div className="rounded-xl border border-[#dae3dd] p-4">
               <p className="text-sm font-semibold text-[#5a665e] mb-3">장면 정보</p>
               <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-[#8a9590]">자기차량</span>
-                  <span className="font-semibold text-[#299283]">{loadedMeta.hasEgo ? '있음' : '없음'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[#8a9590]">동적차량 수</span>
-                  <span className="font-semibold text-[#5a665e]">{(loadedMeta.vehicleCount as number) ?? 0}대</span>
-                </div>
+                <div className="flex justify-between"><span className="text-[#8a9590]">배경 점구름</span><span className="font-semibold text-[#5a665e]">{loadedMeta.hasSplat ? '있음' : '없음'}</span></div>
+                <div className="flex justify-between"><span className="text-[#8a9590]">자기차량</span><span className="font-semibold text-[#299283]">{loadedMeta.hasEgo ? '있음' : '없음'}</span></div>
+                <div className="flex justify-between"><span className="text-[#8a9590]">동적차량 수</span><span className="font-semibold text-[#5a665e]">{(loadedMeta.vehicleCount as number) ?? 0}대</span></div>
               </div>
             </div>
           </div>
 
-          {/* 3D 뷰 */}
           <ViewerPane
             key={`${resultUrl ?? ''}-${resolvedVehiclesUrl ?? ''}`}
             ref={viewerPaneRef}
