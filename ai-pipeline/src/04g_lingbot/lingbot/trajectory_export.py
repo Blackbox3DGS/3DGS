@@ -4,11 +4,21 @@ Produces a `vehicles.json` in the SAME frame as the background .splat written by
 `splat_export.predictions_to_splat` (apply its returned R + center), so the web
 viewer can overlay 3D car models on the point-cloud background.
 
-Vehicle trajectories use the Stage-09 method at LingBot's processed resolution:
-per dynamic track, per frame, take the lower-40% of the bbox ∩ dynamic-mask ROI,
-sample the P20–P30 depth percentile (rear-bumper surface), and unproject
-(u, v, depth) to world via the per-frame c2w + intrinsic. The ego (blackbox) car
-is the camera centre path.
+Dynamic-vehicle placement uses **ego-motion-aligned inverse perspective mapping
+(IPM)** rather than the reconstructed camera rotation. LingBot's forward-driving
+poses have unreliable yaw — the optical axis can come out anti-parallel to the
+direction of travel — which (with a ground-ray or surface-depth method) drops
+vehicles on the wrong side of the ego, so a lead car ends up behind it. IPM
+instead relies only on signals that ARE reliable for this footage:
+
+    * the smooth ego camera *path* (translation), and its motion direction;
+    * the +Y ground alignment (road plane, cars upright);
+    * each track's bbox-bottom image row.
+
+A vehicle higher in the image (smaller v, nearer the horizon) is placed farther
+ahead along the ego's motion direction — monotonic in v, so front/back ordering
+is guaranteed. Lateral (lane) offset is approximate (monocular limit). The ego
+(blackbox) car is the camera-centre path.
 
 Output (matches 3DGS Stage-12 vehicles.json):
     {"vehicles": [{"id": "ego", "class": "ego", "points": [[x,y,z,frame_idx], ...]},
@@ -24,73 +34,39 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# Stage-09 sampling params.
-LOWER_FRAC = 0.40
-PCT_LOW = 20.0
-PCT_HIGH = 30.0
-MIN_ROI_PIXELS = 20
-MIN_PCT_PIXELS = 5
+# Horizon is taken at the principal point (dashcam assumed roughly level). A
+# bbox bottom this many pixels below the horizon is the minimum for a usable
+# ground intersection (clamps the forward distance so near-horizon detections
+# don't shoot to infinity).
+MIN_BELOW_HORIZON_PX = 1.5
 
 
-def _sample_track_frame(mask_img, depth_map, bbox, *,
-                        lower_frac=LOWER_FRAC, pct_low=PCT_LOW, pct_high=PCT_HIGH,
-                        min_roi_pixels=MIN_ROI_PIXELS, min_pct_pixels=MIN_PCT_PIXELS):
-    """Robust (u, v, depth) from one track's ROI. None if too small."""
-    H, W = depth_map.shape[:2]
-    x1, y1, x2, y2 = bbox
-    x1 = max(0, min(W, int(x1))); y1 = max(0, min(H, int(y1)))
-    x2 = max(0, min(W, int(x2))); y2 = max(0, min(H, int(y2)))
-    if x2 <= x1 or y2 <= y1:
-        return None
-    bh = y2 - y1
-    y_lower = y1 + int(round((1.0 - lower_frac) * bh))
-    if y_lower >= y2:
-        return None
-    mask_crop = mask_img[y_lower:y2, x1:x2] > 127
-    if not mask_crop.any():
-        return None
-    if int(mask_crop.sum()) < min_roi_pixels:
-        return None
-    depth_crop = depth_map[y_lower:y2, x1:x2]
-    vs_local, us_local = np.nonzero(mask_crop)
-    depths = depth_crop[vs_local, us_local]
-    finite = np.isfinite(depths) & (depths > 0)
-    if int(finite.sum()) < min_roi_pixels:
-        return None
-    vs_local, us_local, depths = vs_local[finite], us_local[finite], depths[finite]
-    p_lo, p_hi = np.percentile(depths, [pct_low, pct_high])
-    keep = (depths >= p_lo) & (depths <= p_hi)
-    if int(keep.sum()) < min_pct_pixels:
-        return None
-    u = float(np.median(us_local[keep])) + x1
-    v = float(np.median(vs_local[keep])) + y_lower
-    d = float(np.median(depths[keep]))
-    return u, v, d
+def _smoothed_forward(centers: np.ndarray, up: np.ndarray, win: int = 5) -> np.ndarray:
+    """Per-frame horizontal motion direction from the ego camera path.
 
-
-def _pixel_to_world(u, v, depth, c2w, fx, fy, cx, cy):
-    """Unproject one pixel to world coords (c2w is 4x4)."""
-    x = (u - cx) / fx * depth
-    y = (v - cy) / fy * depth
-    pt_cam = np.array([x, y, depth, 1.0], dtype=np.float64)
-    pw = c2w @ pt_cam
-    return float(pw[0]), float(pw[1]), float(pw[2])
-
-
-def _ray_ground_intersect(origin, dir_world, n, p0):
-    """Intersect a camera ray with the ground plane n·(P-p0)=0. None if behind/parallel.
-
-    More reliable than surface depth for ordering ground vehicles: the contact
-    point distance is monotonic in the bbox-bottom image row, so front/back order
-    is preserved even when monocular depth is noisy.
+    `centers` are the ego camera centres in the aligned frame (S, 3). Returns
+    (S, 3) unit forward vectors projected onto the ground plane (perpendicular
+    to `up`). Local motion is windowed for stability and forced to agree in sign
+    with the global start->end direction, so per-frame jitter (the ego barely
+    moves between frames) can't flip the forward axis.
     """
-    denom = float(n @ dir_world)
-    if abs(denom) < 1e-9:
-        return None
-    t = float(n @ (p0 - origin)) / denom
-    if t <= 0:
-        return None
-    return origin + t * dir_world
+    S = len(centers)
+    gnet = centers[-1] - centers[0]
+    gnet = gnet - up * float(gnet @ up)
+    gn = float(np.linalg.norm(gnet))
+    gnet = gnet / gn if gn > 1e-9 else np.array([0.0, 0.0, -1.0])
+    fwd = np.zeros((S, 3))
+    for i in range(S):
+        a = max(0, i - win)
+        b = min(S - 1, i + win)
+        d = centers[b] - centers[a]
+        d = d - up * float(d @ up)
+        n = float(np.linalg.norm(d))
+        fi = d / n if n > 1e-6 else gnet
+        if float(fi @ gnet) < 0:   # keep consistent with travel direction
+            fi = gnet
+        fwd[i] = fi
+    return fwd
 
 
 def export_trajectories_json(
@@ -101,42 +77,45 @@ def export_trajectories_json(
     center=None,
     R=None,
     bbox_sequence_path=None,
-    dynamic_mask_dir=None,
-    ground_normal=None,
+    dynamic_mask_dir=None,        # unused by IPM placement (kept for API compat)
+    ground_normal=None,          # unused by IPM placement (kept for API compat)
     ground_point=None,
+    up_axis=(0.0, 1.0, 0.0),
+    max_forward_factor: float = 12.0,
 ) -> str:
     """Write vehicles.json (ego + dynamic tracks) in the background's frame.
 
-    `predictions` needs depth (S,H,W[,1]), extrinsic (S,3,4 c2w), intrinsic
-    (S,3,3 at processed res). Apply the SAME (R, center) as the .splat export.
+    `predictions` needs extrinsic (S,3,4 c2w) + intrinsic (S,3,3 at processed
+    res) + depth (S,H,W) for the processed resolution. Apply the SAME (R,
+    center) as the .splat export so everything shares one ground-aligned,
+    recentered frame.
     """
+    extr = np.asarray(predictions["extrinsic"], dtype=np.float64)   # (S,3,4) c2w
+    intr = np.asarray(predictions["intrinsic"], dtype=np.float64)   # (S,3,3) processed
     depth = np.asarray(predictions["depth"])
     if depth.ndim == 4:
         depth = depth[..., 0]
-    extr = np.asarray(predictions["extrinsic"], dtype=np.float64)
-    intr = np.asarray(predictions["intrinsic"], dtype=np.float64)
     S, H_p, W_p = depth.shape
-    shift = np.zeros(3, dtype=np.float64) if center is None else np.asarray(center, dtype=np.float64)
+
+    shift = np.zeros(3) if center is None else np.asarray(center, dtype=np.float64)
     Rm = np.eye(3) if R is None else np.asarray(R, dtype=np.float64)
+    up = np.asarray(up_axis, dtype=np.float64)
+    up = up / (np.linalg.norm(up) + 1e-12)
 
-    def _xform(p):
-        q = Rm @ np.asarray(p, dtype=np.float64) - shift
-        return [float(q[0]), float(q[1]), float(q[2])]
-
-    c2w4 = np.tile(np.eye(4), (S, 1, 1))
-    c2w4[:, :3, :4] = extr
+    # Ego camera centres in the aligned + recentered frame (same as the .splat:
+    # p -> R @ p - center). Road plane is y ~= 0 after recenter, so the camera
+    # height above the road is just the aligned centre's up-component.
+    cam_native = extr[:, :3, 3]
+    C = cam_native @ Rm.T - shift               # (S, 3)
+    road_y = 0.0
+    path_len = float(np.linalg.norm(C[-1] - C[0])) or 1.0
+    max_forward = max_forward_factor * path_len
 
     vehicles = []
-
-    # Ego (blackbox) car = camera centre path.
-    ego_pts = []
-    for i in range(S):
-        x, y, z = _xform(c2w4[i, :3, 3])
-        ego_pts.append([x, y, z, i])
+    ego_pts = [[float(C[i, 0]), float(C[i, 1]), float(C[i, 2]), i] for i in range(S)]
     if ego_pts:
         vehicles.append({"id": "ego", "class": "ego", "points": ego_pts})
 
-    # Dynamic vehicles from Stage-03 bbox_sequence.
     if bbox_sequence_path and os.path.exists(bbox_sequence_path):
         with open(bbox_sequence_path) as f:
             bseq = json.load(f)
@@ -146,19 +125,15 @@ def export_trajectories_json(
             dyn_ids = {tid for tid, t in tracks.items()
                        if t.get("state") == "dynamic" and tid != "-1"}
 
-        # Preferred: ground-plane ray intersection (correct front/back ordering).
-        use_ground = ground_normal is not None and ground_point is not None
-        gN = np.asarray(ground_normal, dtype=np.float64) if use_ground else None
-        gP = np.asarray(ground_point, dtype=np.float64) if use_ground else None
-        print(f"Dynamic vehicle placement: {'ground-ray' if use_ground else 'surface-depth'}")
-
-        # Original frame resolution (bbox -> processed-intrinsic scaling).
+        # Original frame resolution -> processed-intrinsic pixel scaling.
         H_o = W_o = None
         if frame_paths:
             im0 = cv2.imread(str(frame_paths[0]))
             if im0 is not None:
                 H_o, W_o = im0.shape[:2]
-        mdir = Path(dynamic_mask_dir) if dynamic_mask_dir else None
+
+        fwd = _smoothed_forward(C, up)
+        print("Dynamic vehicle placement: ego-motion IPM")
 
         per_track = {tid: [] for tid in dyn_ids}
         for i in range(S):
@@ -167,49 +142,29 @@ def export_trajectories_json(
             sx, sy = W_p / float(W_o), H_p / float(H_o)
             fx, fy = intr[i, 0, 0], intr[i, 1, 1]
             cx, cy = intr[i, 0, 2], intr[i, 1, 2]
-            origin = c2w4[i, :3, 3]
-            Rc = c2w4[i, :3, :3]
-
-            # Surface-depth fallback needs the per-frame mask.
-            mask_i = None
-            if not use_ground and mdir is not None:
-                stem = Path(frame_paths[i]).stem
-                for ext in (".png", ".jpg"):
-                    cand = mdir / f"{stem}{ext}"
-                    if cand.exists():
-                        mm = cv2.imread(str(cand), cv2.IMREAD_GRAYSCALE)
-                        if mm is not None:
-                            if mm.shape[0] != H_p or mm.shape[1] != W_p:
-                                mm = cv2.resize(mm, (W_p, H_p), interpolation=cv2.INTER_NEAREST)
-                            mask_i = mm
-                        break
+            f = fwd[i]
+            r = np.cross(up, f)
+            rn = float(np.linalg.norm(r))
+            r = r / rn if rn > 1e-9 else np.array([1.0, 0.0, 0.0])
+            h_cam = float(C[i, 1] - road_y)
+            if h_cam <= 1e-6:
+                continue
 
             for tid in dyn_ids:
                 fr = tracks.get(tid, {}).get("frames", {}).get(str(i))
                 if fr is None:
                     continue
-                bx = fr["bbox"]  # original-res [x1,y1,x2,y2]
-                if use_ground:
-                    # bbox 바닥중심(접지점) → 광선 → 도로평면 교차
-                    u = 0.5 * (bx[0] + bx[2]) * sx
-                    v = bx[3] * sy
-                    dir_cam = np.array([(u - cx) / fx, (v - cy) / fy, 1.0], dtype=np.float64)
-                    P = _ray_ground_intersect(origin, Rc @ dir_cam, gN, gP)
-                    if P is None:
-                        continue
-                    x, y, z = _xform(P)
-                    per_track[tid].append([x, y, z, i])
-                else:
-                    if mask_i is None:
-                        continue
-                    bbox_p = (bx[0] * sx, bx[1] * sy, bx[2] * sx, bx[3] * sy)
-                    s = _sample_track_frame(mask_i, depth[i], bbox_p)
-                    if s is None:
-                        continue
-                    uu, vv, dd = s
-                    wx, wy, wz = _pixel_to_world(uu, vv, dd, c2w4[i], fx, fy, cx, cy)
-                    x, y, z = _xform((wx, wy, wz))
-                    per_track[tid].append([x, y, z, i])
+                bx = fr["bbox"]                       # original-res [x1,y1,x2,y2]
+                u = 0.5 * (bx[0] + bx[2]) * sx        # bbox bottom-centre (processed px)
+                v = bx[3] * sy
+                dv = v - cy                           # below horizon = on the road ahead
+                if dv <= MIN_BELOW_HORIZON_PX:
+                    continue                          # at/above horizon -> skip
+                D = h_cam * fy / dv                   # forward distance (monotonic in v)
+                D = min(D, max_forward)
+                L = (u - cx) / fx * D                 # lateral offset
+                P = C[i] + D * f + L * r              # on the road, ahead of the ego
+                per_track[tid].append([float(P[0]), road_y, float(P[2]), i])
 
         for tid in sorted(per_track, key=lambda s: int(s)):
             pts = per_track[tid]
@@ -219,7 +174,8 @@ def export_trajectories_json(
 
     payload = {
         "coord_system": "lingbot-native, ground-aligned + recentered (same frame as background.splat)",
-        "note": "points are [x, y, z, frame_idx]; 'ego' is the blackbox camera path",
+        "note": "points are [x, y, z, frame_idx]; 'ego' is the blackbox camera path; "
+                "dynamic vehicles placed via ego-motion IPM (order-accurate, distance approximate)",
         "vehicles": vehicles,
     }
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
