@@ -29,7 +29,9 @@ const VEHICLE_CLASSES = new Set(['car', 'truck', 'bus', 'motorcycle', 'bicycle']
 const MIN_TRACK_POINTS = 5;
 const FRAME_FPS = 10;            // vehicles.json의 frame_idx → 재생 fps
 const SPLAT_POINT_SIZE = 0.05;   // THREE.Points 점 크기(월드 단위, sizeAttenuation)
-const VEHICLE_SCALE_FRAC = 0.055; // 차량 크기 = 씬 최대치수 × 이 비율 (lingbot 네이티브=비미터라 상대 크기)
+const VEHICLE_SCALE_FRAC = 0.015; // 차량 크기 = 씬 최대치수 × 이 비율 (배경/카메라와 독립 — 이 값만 차 크기에 영향)
+const MIRROR_X = true; // lingbot world handedness 보정 — 씬 좌우 반전(나무가 원본처럼 왼쪽). splat+차량 모두 적용.
+const MX = MIRROR_X ? -1 : 1;
 
 // ─── 타입 ────────────────────────────────────────────────────────────────────
 
@@ -138,6 +140,25 @@ async function loadVehiclesJson(url: string | undefined): Promise<VehicleSpec[] 
   } catch { return null; }
 }
 
+function srgbToLinear(c: number): number {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+// 원형(소프트) 점 텍스처 — 사각 블록 대신 부드러운 점으로.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeDiscTexture(THREE: any) {
+  const s = 64;
+  const cv = document.createElement('canvas'); cv.width = cv.height = s;
+  const ctx = cv.getContext('2d')!;
+  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.6, 'rgba(255,255,255,1)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(s / 2, s / 2, s / 2, 0, Math.PI * 2); ctx.fill();
+  return new THREE.CanvasTexture(cv);
+}
+
 // .splat(32 byte/점: xyz f32 + scale f32x3 + rgba u8 + quat u8x4) → THREE.Points
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function loadSplatAsPoints(THREE: any, url: string | undefined) {
@@ -150,17 +171,21 @@ async function loadSplatAsPoints(THREE: any, url: string | undefined) {
     const colors = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
       const b = i * 32;
-      positions[i * 3] = dv.getFloat32(b, true);
+      positions[i * 3] = MX * dv.getFloat32(b, true);   // 좌우 반전(handedness 보정)
       positions[i * 3 + 1] = dv.getFloat32(b + 4, true);
       positions[i * 3 + 2] = dv.getFloat32(b + 8, true);
-      colors[i * 3] = dv.getUint8(b + 24) / 255;
-      colors[i * 3 + 1] = dv.getUint8(b + 25) / 255;
-      colors[i * 3 + 2] = dv.getUint8(b + 26) / 255;
+      // .splat 색은 sRGB → THREE working space(linear)로 변환해야 바래지 않음.
+      colors[i * 3] = srgbToLinear(dv.getUint8(b + 24) / 255);
+      colors[i * 3 + 1] = srgbToLinear(dv.getUint8(b + 25) / 255);
+      colors[i * 3 + 2] = srgbToLinear(dv.getUint8(b + 26) / 255);
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const mat = new THREE.PointsMaterial({ size: SPLAT_POINT_SIZE, sizeAttenuation: true, vertexColors: true });
+    const mat = new THREE.PointsMaterial({
+      size: SPLAT_POINT_SIZE, sizeAttenuation: true, vertexColors: true,
+      map: makeDiscTexture(THREE), alphaTest: 0.4, transparent: true, depthWrite: true,
+    });
     // eslint-disable-next-line no-console
     console.log(`[Viewer3D] splat → ${n} points`);
     return new THREE.Points(geo, mat);
@@ -234,6 +259,7 @@ interface ViewerPaneProps {
   showVehicles: boolean;
   showEgo: boolean;
   showTrajectoryLines: boolean;
+  targetIdsCsv: string;   // 쉼표구분 track id; 비면 전체, 있으면 해당 차량+ego만
   autoPlay: boolean;
   playbackSpeed: number;
   playbackLoop: boolean;
@@ -243,17 +269,17 @@ interface ViewerPaneProps {
 interface ViewerPaneRef { focusScene: () => void }
 
 const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPane(props, ref) {
-  const { splatUrl, vehiclesUrl, showVehicles, showEgo, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop, onStatusChange, onLoadedMeta } = props;
+  const { splatUrl, vehiclesUrl, showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, onStatusChange, onLoadedMeta } = props;
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const engineRef = useRef<any>(null);
-  const uiStateRef = useRef({ showVehicles, showEgo, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop });
+  const uiStateRef = useRef({ showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop });
 
   useEffect(() => {
-    uiStateRef.current = { showVehicles, showEgo, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop };
-  }, [showVehicles, showEgo, showTrajectoryLines, autoPlay, playbackSpeed, playbackLoop]);
+    uiStateRef.current = { showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop };
+  }, [showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop]);
 
   useEffect(() => {
     let disposed = false;
@@ -313,7 +339,7 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
           const model = (isEgo ? egoBase : carBase).clone(true);
           model.visible = isEgo ? uiStateRef.current.showEgo : uiStateRef.current.showVehicles;
           vehicleGroup.add(model);
-          const pts = smoothPoints(spec.points);
+          const pts = smoothPoints(spec.points).map((p) => [MX * p[0], p[1], p[2], p[3]]);
           const line = new THREE.Line(
             new THREE.BufferGeometry().setFromPoints(pts.map((p) => new THREE.Vector3(p[0], p[1], p[2]))),
             new THREE.LineBasicMaterial({ color })
@@ -350,8 +376,23 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
         scene.add(grid);
 
         const focusScene = () => {
-          controls.target.copy(center);
-          camera.position.set(center.x, center.y + maxDim * 0.45, center.z + maxDim * 1.1);
+          // 기본 시점 = ego 뒤에서 주행방향을 바라봄(운전자 3인칭) → 원본 영상과 좌우 일치.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const ego = vehicles.find((v: any) => v.isEgo);
+          let target = center.clone();
+          let pos = new THREE.Vector3(center.x, center.y + maxDim * 0.45, center.z + maxDim * 1.1);
+          if (ego && ego.points.length >= 2) {
+            const p0 = ego.points[0]; const pN = ego.points[ego.points.length - 1];
+            const dir = new THREE.Vector3(pN[0] - p0[0], 0, pN[2] - p0[2]);
+            if (dir.lengthSq() > 1e-6) {
+              dir.normalize();
+              const start = new THREE.Vector3(p0[0], groundY, p0[2]);
+              target = start.clone().addScaledVector(dir, maxDim * 0.35); target.y = groundY + maxDim * 0.05;
+              pos = start.clone().addScaledVector(dir, -maxDim * 0.25); pos.y = groundY + maxDim * 0.18;
+            }
+          }
+          controls.target.copy(target);
+          camera.position.copy(pos);
           camera.near = Math.max(0.01, maxDim / 1000); camera.far = maxDim * 40;
           camera.updateProjectionMatrix(); controls.update();
         };
