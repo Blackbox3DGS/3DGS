@@ -1,2 +1,36 @@
-venv/
+# --- OS / IDE ---
 .DS_Store
+.idea/
+.vscode/
+
+# --- Python ---
+venv/
+**/__pycache__/
+*.pyc
+
+# --- Node / Frontend ---
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# --- AI pipeline data / outputs (대용량, git 미추적) ---
+ai-pipeline/outputs/
+ai-pipeline/data/
+ai-pipeline/third_party/
+
+# --- 대용량 모델 / 산출물 바이너리 ---
+*.pt
+*.splat
+
+# --- 프론트 데모/샘플 자산 (로컬 전용, 대용량) ---
+frontend/public/frames/
+frontend/public/clips/
+frontend/public/sample3.splat
+frontend/public/sample3_bbox.json
+frontend/public/sample3_vehicles.json
+
+# --- Backend (Spring Boot) ---
+backend/src/main/resources/application-secret.yml
+backend/build/
+backend/.gradle/
+backend/bin/
