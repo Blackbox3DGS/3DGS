@@ -11,6 +11,7 @@ export function SignupScreen() {
     passwordConfirm: '',
     name: '',
     email: '',
+    birth: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -40,6 +41,7 @@ export function SignupScreen() {
         password: form.password,
         name: form.name,
         email: form.email,
+        birth: form.birth,
       });
       navigate('/login', { replace: true });
     } catch (err: unknown) {
@@ -135,6 +137,7 @@ export function SignupScreen() {
             { id: 'userId',          label: '아이디',        type: 'text',     placeholder: '사용할 아이디 입력' },
             { id: 'name',            label: '이름',          type: 'text',     placeholder: '이름 입력' },
             { id: 'email',           label: '이메일',        type: 'email',    placeholder: 'example@email.com' },
+            { id: 'birth',           label: '생년월일',      type: 'date',     placeholder: '' },
             { id: 'password',        label: '비밀번호',      type: 'password', placeholder: '8자 이상 입력' },
             { id: 'passwordConfirm', label: '비밀번호 확인', type: 'password', placeholder: '비밀번호 재입력' },
           ].map(({ id, label, type, placeholder }) => (
