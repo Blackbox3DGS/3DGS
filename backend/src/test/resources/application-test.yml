@@ -1,0 +1,112 @@
+# DB (H2 in-memory)
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.H2Dialect
+
+  # H2 console (optional)
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  # Redis (테스트 더미 주소)
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: ""
+      database: 1
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+
+# JWT (테스트 값)
+jwt:
+  key: test-secret-key-for-testing-purposes-only-very-long-key
+  secret: test-secret-key-for-testing-purposes-only-very-long-key
+  access:
+    expiration: 900000       # 15분
+  refresh:
+    expiration: 1209600000  # 14일
+  access-expiration-ms: 900000       # 15분
+  refresh-expiration-ms: 1209600000  # 14일
+  verification-expiration-ms: 900000 # 15분
+
+# Email (테스트 값; 실제 전송 안 함)
+email:
+  from: test@youthfi.com
+  host: smtp.gmail.com
+  port: 587
+  username: test@youthfi.com
+  password: test-password
+  properties:
+    mail:
+      smtp:
+        auth: true
+        starttls:
+          enable: true
+        ssl:
+          trust: smtp.gmail.com
+
+# App
+app:
+  client:
+    url: http://localhost:3000
+
+# Security 테스트 완화
+security:
+  exclude-auth-path-patterns:
+    paths:
+      - path-pattern: /api/auth/signup
+        method: POST
+      - path-pattern: /api/auth/login
+        method: POST
+      - path-pattern: /api/verification/**
+        method: POST
+      - path-pattern: /api/email/**
+        method: POST
+      - path-pattern: /h2-console/**
+        method: GET
+      - path-pattern: /h2-console/**
+        method: POST
+
+  exclude-blacklist-path-patterns:
+    paths:
+      - path-pattern: /api/auth/signup
+        method: POST
+      - path-pattern: /api/auth/login
+        method: POST
+      - path-pattern: /api/verification/**
+        method: POST
+      - path-pattern: /api/email/**
+        method: POST
+      - path-pattern: /h2-console/**
+        method: GET
+      - path-pattern: /h2-console/**
+        method: POST
+
+# Logging
+logging:
+  level:
+    com.youthfi.auth: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.security: DEBUG
+    org.springframework.mail: DEBUG
+    org.springframework.data.redis: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
