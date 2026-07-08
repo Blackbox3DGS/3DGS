@@ -58,6 +58,10 @@ STAGE_MODULES = {
     "10p_pcsplat": "10p_pcsplat.pcsplat",
     "11_format": "11_format.format_step",
     "12_viewer": "12_viewer.viewer",
+    # Quantitative evaluation vs Waymo GT. Not in the default step lists —
+    # needs a pre-extracted gt.json (scripts/evaluate_waymo.py extract-gt);
+    # run explicitly: --steps ...,13_eval
+    "13_eval": "13_eval.eval_step",
 }
 
 
@@ -166,6 +170,8 @@ _ARTIFACT_PATHS = {
     "gs_model_dir":        ["10_3dgs/model"],
     "output_topdown":      ["10_3dgs/output_topdown.png"],
     "output_splat":        ["10p_pcsplat/output.splat", "11_format/output.splat"],
+    "eval_metrics":        ["13_eval/metrics.json"],
+    "eval_report":         ["13_eval/report.md"],
 }
 
 
