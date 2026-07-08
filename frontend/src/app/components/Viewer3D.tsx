@@ -8,6 +8,15 @@ import {
   useState,
 } from 'react';
 import { OriginalFramesPanel } from './OriginalFramesPanel';
+import {
+  computeClosestApproach,
+  computeMetersPerUnit,
+  computeSpeedSeries,
+  positionAtFrame,
+  type ClosestApproach,
+  type ScaleInfo,
+} from './replay/analysis';
+import { TimelineBar } from './replay/TimelineBar';
 
 // ─── 상수 ───────────────────────────────────────────────────────────────────
 
@@ -131,14 +140,21 @@ function toSpecs(list: any[]): VehicleSpec[] {
     .filter((v) => v.id === 'ego' || (VEHICLE_CLASSES.has(v.cls) && (v.points?.length || 0) >= MIN_TRACK_POINTS));
 }
 
-async function loadVehiclesJson(url: string | undefined): Promise<VehicleSpec[] | null> {
+interface VehiclesPayload {
+  specs: VehicleSpec[];
+  // vehicles.json 상단 메타 (meters_per_unit / camera_height_prior_m / fps) —
+  // 사고 분석(거리 m, 속도 km/h) 환산에 사용. 구버전 데이터엔 없을 수 있음.
+  meta: Record<string, unknown>;
+}
+
+async function loadVehiclesJson(url: string | undefined): Promise<VehiclesPayload | null> {
   if (!url) return null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await safeFetchJson(url);
-    if (Array.isArray(data?.vehicles)) return toSpecs(data.vehicles);
-    if (Array.isArray(data)) return [{ id: 'A', cls: 'car', points: data }];
-    if (Array.isArray(data?.points)) return [{ id: 'A', cls: 'car', points: data.points }];
+    if (Array.isArray(data?.vehicles)) return { specs: toSpecs(data.vehicles), meta: data };
+    if (Array.isArray(data)) return { specs: [{ id: 'A', cls: 'car', points: data }], meta: {} };
+    if (Array.isArray(data?.points)) return { specs: [{ id: 'A', cls: 'car', points: data.points }], meta: {} };
     return null;
   } catch { return null; }
 }
@@ -315,6 +331,8 @@ function disposeThreeObject(root: any) {
 
 // ─── ViewerPane (Three.js 단일 씬: 점구름 + 차량 + OrbitControls) ─────────────
 
+type ViewMode = '3d' | 'bev';
+
 interface ViewerPaneProps {
   splatUrl?: string;
   vehiclesUrl?: string;
@@ -325,23 +343,32 @@ interface ViewerPaneProps {
   autoPlay: boolean;
   playbackSpeed: number;
   playbackLoop: boolean;
+  viewMode: ViewMode;      // '3d' 자유시점 | 'bev' 탑다운(직교) — 사고 재현 기본 분석 뷰
+  pairA: string;           // 거리 HUD 대상 차량쌍 (track id)
+  pairB: string;
+  onViewModeChange: (m: ViewMode) => void;
   onStatusChange: (s: { phase: string; message: string }) => void;
   onLoadedMeta: (m: Record<string, unknown>) => void;
 }
-interface ViewerPaneRef { focusScene: () => void }
+interface ViewerPaneRef {
+  focusScene: () => void;
+  seek: (frame: number) => void;
+  getFrame: () => number;
+}
 
 const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPane(props, ref) {
-  const { splatUrl, vehiclesUrl, showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, onStatusChange, onLoadedMeta } = props;
+  const { splatUrl, vehiclesUrl, showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, viewMode, pairA, pairB, onViewModeChange, onStatusChange, onLoadedMeta } = props;
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hudRef = useRef<HTMLDivElement>(null);   // 거리/속도 HUD — 루프가 직접 갱신(리렌더 없음)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const engineRef = useRef<any>(null);
-  const uiStateRef = useRef({ showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop });
+  const uiStateRef = useRef({ showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, viewMode, pairA, pairB });
 
   useEffect(() => {
-    uiStateRef.current = { showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop };
-  }, [showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop]);
+    uiStateRef.current = { showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, viewMode, pairA, pairB };
+  }, [showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, viewMode, pairA, pairB]);
 
   useEffect(() => {
     let disposed = false;
@@ -379,7 +406,7 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
         const vehicleGroup = new THREE.Group();
         scene.add(trajectoryGroup, vehicleGroup);
 
-        const [vehSpecsRaw, carBaseRes, egoBaseRes, splatPoints] = await Promise.all([
+        const [vehPayload, carBaseRes, egoBaseRes, splatPoints] = await Promise.all([
           loadVehiclesJson(vehiclesUrl),
           loadVehicleModel({ THREE, GLTFLoader, url: DEMO_VEHICLE_URL_CAR, fallbackColor: 0x2563eb }),
           loadVehicleModel({ THREE, GLTFLoader, url: DEMO_VEHICLE_URL_EGO, fallbackColor: EGO_COLOR }),
@@ -388,7 +415,8 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
         if (disposed) return;
         if (splatPoints) scene.add(splatPoints);
 
-        const specs: VehicleSpec[] = vehSpecsRaw && vehSpecsRaw.length ? vehSpecsRaw
+        const vehMeta = vehPayload?.meta ?? {};
+        const specs: VehicleSpec[] = vehPayload?.specs && vehPayload.specs.length ? vehPayload.specs
           : [{ id: 'A', cls: 'car', points: sampleTrajectoryA }, { id: 'B', cls: 'car', points: sampleTrajectoryB }];
 
         const carBase = carBaseRes.model;
@@ -441,6 +469,92 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
         grid.position.set(center.x, groundY, center.z);
         scene.add(grid);
 
+        // ── 사고 재현 분석 ────────────────────────────────────────────────
+        // 스케일(m/unit): vehicles.json 메타 우선, 없으면 카메라높이 prior 근사.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const egoVeh = vehicles.find((v: any) => v.isEgo);
+        const scale: ScaleInfo = computeMetersPerUnit(
+          vehMeta as { meters_per_unit?: unknown; camera_height_prior_m?: unknown },
+          egoVeh ? egoVeh.points : null,
+          groundAt,
+        );
+        const mpu = scale.metersPerUnit;
+
+        // 프레임별 속도(km/h) — 13_eval 속도 지표와 같은 중앙차분 방식.
+        const speedSeries = new Map<string, Map<number, number>>();
+        if (mpu) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          vehicles.forEach((v: any) => speedSeries.set(v.id, computeSpeedSeries(v.points, FRAME_FPS, mpu)));
+        }
+
+        // 최근접(충돌 후보) 시점: 모든 활성 차량쌍 최소거리의 argmin.
+        const collision: ClosestApproach | null = computeClosestApproach(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          vehicles.map((v: any) => ({ id: v.id, isEgo: v.isEgo, points: v.points })),
+        );
+
+        // 충돌 링: 최근접 프레임의 두 차량 중점, 노면 위에 상시 표시(펄스).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let collisionRing: any = null;
+        if (collision) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const byId = new Map<string, any>(vehicles.map((v: any) => [v.id, v]));
+          const pa = positionAtFrame(byId.get(collision.aId)?.points ?? [], collision.frame);
+          const pb = positionAtFrame(byId.get(collision.bId)?.points ?? [], collision.frame);
+          if (pa && pb) {
+            const mx = (pa[0] + pb[0]) / 2, mz = (pa[2] + pb[2]) / 2;
+            const rOuter = Math.max(collision.distanceUnits * 0.75, carScale * 1.2);
+            collisionRing = new THREE.Mesh(
+              new THREE.RingGeometry(rOuter * 0.72, rOuter, 48),
+              new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }),
+            );
+            collisionRing.rotation.x = -Math.PI / 2;
+            collisionRing.position.set(mx, groundAt(mx, mz) + maxDim * 0.002, mz);
+            scene.add(collisionRing);
+          }
+        }
+
+        // 선택 차량쌍 거리 표시선 (dashed) — 루프에서 양 끝점 갱신.
+        const pairLineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+        const pairLine = new THREE.Line(
+          pairLineGeo,
+          new THREE.LineDashedMaterial({ color: 0x299283, dashSize: maxDim * 0.01, gapSize: maxDim * 0.006, transparent: true, opacity: 0.95 }),
+        );
+        pairLine.visible = false;
+        pairLine.frustumCulled = false;
+        scene.add(pairLine);
+
+        // ── BEV(탑다운) 직교 카메라 ──────────────────────────────────────
+        // 지면 정렬(y-up) 씬을 위에서 직교 투영 — 원근 왜곡 없는 사고 분석 뷰.
+        // 화면 위쪽 = ego 진행방향이 되도록 up 벡터를 경로 방향으로 설정.
+        const bevCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, maxDim * 20);
+        {
+          let ux = 0, uz = -1;
+          if (egoVeh && egoVeh.points.length >= 2) {
+            const p0 = egoVeh.points[0], pN = egoVeh.points[egoVeh.points.length - 1];
+            const dx = pN[0] - p0[0], dz = pN[2] - p0[2];
+            const n = Math.hypot(dx, dz);
+            if (n > 1e-6) { ux = dx / n; uz = dz / n; }
+          }
+          bevCamera.up.set(ux, 0, uz);
+          bevCamera.position.set(center.x, box.max.y + maxDim, center.z);
+          bevCamera.lookAt(center.x, groundY, center.z);
+        }
+        const updateBevFrustum = (w: number, h: number) => {
+          const aspect = w / Math.max(1, h);
+          const spanX = Math.max(1e-6, box.max.x - box.min.x);
+          const spanZ = Math.max(1e-6, box.max.z - box.min.z);
+          const half = 0.55 * Math.max(spanX, spanZ);   // 여백 10%
+          bevCamera.left = -half * aspect; bevCamera.right = half * aspect;
+          bevCamera.top = half; bevCamera.bottom = -half;
+          bevCamera.updateProjectionMatrix();
+        };
+        const bevControls = new OrbitControls(bevCamera, canvas);
+        bevControls.enableRotate = false;   // 탑다운 유지 — pan/zoom만
+        bevControls.enableDamping = true; bevControls.dampingFactor = 0.08;
+        bevControls.target.set(center.x, groundY, center.z);
+        bevControls.enabled = false;
+
         // 평균 위치(xz) 헬퍼
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const avgXZ = (vs: any[]) => {
@@ -484,18 +598,36 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
           const r = container.getBoundingClientRect();
           const w = Math.max(1, Math.floor(r.width)), h = Math.max(1, Math.floor(r.height));
           renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+          updateBevFrustum(w, h);
         };
         resize(); resizeHandler = resize; window.addEventListener('resize', resize);
 
         const startTimeRef = { current: performance.now() };
         const pausePlayheadRef = { current: 0 };
         const lastAutoPlayRef = { current: uiStateRef.current.autoPlay };
-        engineRef.current = { renderer, scene, camera, controls, vehicles, grid, groundY, groundAt, focusScene, startTimeRef, pausePlayheadRef, lastAutoPlayRef };
+        engineRef.current = {
+          renderer, scene, camera, controls, vehicles, grid, groundY, groundAt, focusScene,
+          startTimeRef, pausePlayheadRef, lastAutoPlayRef,
+          bevCamera, bevControls, splatPoints,
+          scale, speedSeries, collision, collisionRing, pairLine,
+          lastSampleInput: 0, lastViewMode: '3d' as ViewMode, lastHudAt: 0,
+        };
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const durFrames = vehicles.reduce((d: number, v: any) => Math.max(d, v.last || 0), 1);
         onLoadedMeta({
           vehicleCount: vehicles.filter((v: { isEgo: boolean }) => !v.isEgo).length,
           hasEgo: vehicles.some((v: { isEgo: boolean }) => v.isEgo),
           hasSplat: !!splatPoints,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          vehicleIds: vehicles.map((v: any) => v.id),
+          durFrames,
+          metersPerUnit: mpu,
+          scaleSource: scale.source,
+          collision: collision && mpu ? {
+            frame: collision.frame, aId: collision.aId, bId: collision.bId,
+            distanceM: collision.distanceUnits * mpu,
+          } : null,
         });
         onStatusChange({ phase: 'ready', message: '뷰어 준비 완료' });
 
@@ -536,8 +668,68 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
             }
           });
 
+          e.lastSampleInput = sampleInput;
+
+          // ── 시점 전환 (3D 자유시점 ↔ BEV 탑다운) ──────────────────────
+          if (e.lastViewMode !== st.viewMode) {
+            const bev = st.viewMode === 'bev';
+            e.controls.enabled = !bev;
+            e.bevControls.enabled = bev;
+            // 직교 투영에서는 sizeAttenuation 점 크기가 카메라 높이에 눌려
+            // 작아지므로 BEV 진입 시 점 크기를 보정한다.
+            if (e.splatPoints) {
+              e.splatPoints.material.size = bev ? SPLAT_POINT_SIZE * 3 : SPLAT_POINT_SIZE;
+              e.splatPoints.material.needsUpdate = true;
+            }
+            e.lastViewMode = st.viewMode;
+          }
+
+          // ── 충돌 링 펄스 ──────────────────────────────────────────────
+          if (e.collisionRing) {
+            const pulse = 0.72 + 0.28 * Math.sin(now / 280);
+            e.collisionRing.material.opacity = pulse;
+            e.collisionRing.visible = st.showVehicles;
+          }
+
+          // ── 선택 차량쌍 거리선 + HUD (거리 m · 속도 km/h) ─────────────
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const byId = new Map<string, any>(e.vehicles.map((v: any) => [v.id, v]));
+          const va = byId.get(st.pairA), vb = byId.get(st.pairB);
+          const pa = va ? positionAtFrame(va.points, sampleInput) : null;
+          const pb = vb ? positionAtFrame(vb.points, sampleInput) : null;
+          const mpuNow = e.scale?.metersPerUnit ?? null;
+          if (pa && pb) {
+            const gya = e.groundAt(pa[0], pa[2]), gyb = e.groundAt(pb[0], pb[2]);
+            const posAttr = e.pairLine.geometry.getAttribute('position');
+            posAttr.setXYZ(0, pa[0], gya + 0.02, pa[2]);
+            posAttr.setXYZ(1, pb[0], gyb + 0.02, pb[2]);
+            posAttr.needsUpdate = true;
+            e.pairLine.geometry.computeBoundingSphere();
+            e.pairLine.computeLineDistances();
+            e.pairLine.visible = true;
+          } else {
+            e.pairLine.visible = false;
+          }
+          if (hudRef.current && now - e.lastHudAt > 100) {
+            e.lastHudAt = now;
+            const f = Math.round(sampleInput);
+            const speedOf = (id: string) => {
+              const s = e.speedSeries?.get(id)?.get(f);
+              return s != null ? `≈${s.toFixed(0)} km/h` : '—';
+            };
+            const distTxt = pa && pb && mpuNow
+              ? `≈${(Math.hypot(pa[0] - pb[0], pa[2] - pb[2]) * mpuNow).toFixed(1)} m`
+              : '—';
+            const nameOf = (id: string) => (id === 'ego' ? 'ego' : `#${id}`);
+            hudRef.current.textContent =
+              `t ${(sampleInput / FRAME_FPS).toFixed(1)}s · ` +
+              `${nameOf(st.pairA)} ${speedOf(st.pairA)} · ${nameOf(st.pairB)} ${speedOf(st.pairB)} · ` +
+              `차간거리 ${distTxt}`;
+          }
+
           e.controls.update();
-          e.renderer.render(e.scene, e.camera);
+          e.bevControls.update();
+          e.renderer.render(e.scene, st.viewMode === 'bev' ? e.bevCamera : e.camera);
           rafId = requestAnimationFrame(animate);
         };
         rafId = requestAnimationFrame(animate);
@@ -556,8 +748,11 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
       if (e) {
         try {
           e.controls?.dispose?.();
+          e.bevControls?.dispose?.();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (e.vehicles || []).forEach((v: any) => { disposeThreeObject(v.model); v.line?.geometry?.dispose?.(); v.line?.material?.dispose?.(); });
+          e.pairLine?.geometry?.dispose?.(); e.pairLine?.material?.dispose?.();
+          e.collisionRing?.geometry?.dispose?.(); e.collisionRing?.material?.dispose?.();
           e.scene?.traverse?.((o: any) => { if (o.isPoints) { o.geometry?.dispose?.(); o.material?.dispose?.(); } });
           e.renderer?.dispose?.();
         } catch (_) {}
@@ -566,13 +761,46 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
     };
   }, [splatUrl, vehiclesUrl, onStatusChange, onLoadedMeta]);
 
-  useImperativeHandle(ref, () => ({ focusScene: () => engineRef.current?.focusScene?.() }));
+  useImperativeHandle(ref, () => ({
+    focusScene: () => engineRef.current?.focusScene?.(),
+    // 스크러버 시킹 — 일시정지(pausePlayhead)와 자동재생(startTime) 둘 다 보정해
+    // 어느 모드에서든 즉시 점프.
+    seek: (frame: number) => {
+      const e = engineRef.current;
+      if (!e) return;
+      const sec = Math.max(0, frame) / FRAME_FPS;
+      e.pausePlayheadRef.current = sec;
+      const speed = Math.max(0.0001, uiStateRef.current.playbackSpeed || 1);
+      e.startTimeRef.current = performance.now() - (sec / speed) * 1000;
+    },
+    getFrame: () => engineRef.current?.lastSampleInput ?? 0,
+  }));
 
   return (
     <div ref={wrapRef} className="relative h-[600px] overflow-hidden rounded-2xl border border-[#dae3dd] bg-[#0a1e14]">
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" style={{ touchAction: 'none' }} />
+      {/* 시점 토글 (3D 자유시점 / BEV 탑다운) */}
+      <div className="absolute left-4 top-4 z-20 flex gap-1 rounded-xl bg-black/45 p-1 backdrop-blur">
+        {([['3d', '3D'], ['bev', 'BEV']] as Array<[ViewMode, string]>).map(([m, label]) => (
+          <button
+            key={m}
+            onClick={() => onViewModeChange(m)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+              viewMode === m ? 'bg-[#299283] text-white' : 'text-white/75 hover:text-white'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {/* 거리/속도 HUD — 애니메이션 루프가 textContent 직접 갱신 */}
+      <div
+        ref={hudRef}
+        className="pointer-events-none absolute left-4 top-14 z-20 rounded-xl bg-black/45 px-3 py-2 font-mono text-xs text-white backdrop-blur"
+        title="단안 추정 스케일(카메라 높이 prior) 기반 근사값"
+      />
       <div className="pointer-events-none absolute bottom-4 right-4 z-20 rounded-xl bg-black/45 px-3 py-2 text-xs text-white backdrop-blur">
-        좌클릭 드래그 회전 · 우클릭 이동 · 휠 줌
+        {viewMode === 'bev' ? '우클릭 이동 · 휠 줌 (탑다운 고정)' : '좌클릭 드래그 회전 · 우클릭 이동 · 휠 줌'}
       </div>
     </div>
   );
@@ -589,10 +817,34 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl, framesP
   const [autoPlay, setAutoPlay] = useState(true);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [loadedMeta, setLoadedMeta] = useState<Record<string, unknown>>({});
+  const [viewMode, setViewMode] = useState<ViewMode>('3d');
+  const [pairA, setPairA] = useState('ego');
+  const [pairB, setPairB] = useState('');
 
   const resolvedVehiclesUrl = vehiclesUrl ?? trajectoryUrl;
   const viewerPaneRef = useRef<ViewerPaneRef>(null);
-  const handleLoadedMeta = useCallback((meta: Record<string, unknown>) => setLoadedMeta(meta || {}), []);
+  const handleLoadedMeta = useCallback((meta: Record<string, unknown>) => {
+    setLoadedMeta(meta || {});
+    // 거리 HUD 기본 쌍 = 최근접(충돌 후보) 쌍, 없으면 ego + 첫 동적차량.
+    const col = meta?.collision as { aId?: string; bId?: string } | null;
+    const ids = (meta?.vehicleIds as string[]) || [];
+    if (col?.aId && col?.bId) {
+      setPairA(col.aId); setPairB(col.bId);
+    } else {
+      const firstDyn = ids.find((id) => id !== 'ego');
+      if (ids.includes('ego')) setPairA('ego');
+      if (firstDyn) setPairB(firstDyn);
+    }
+  }, []);
+
+  const collisionMeta = loadedMeta.collision as { frame: number; aId: string; bId: string; distanceM: number } | null | undefined;
+  const vehicleIds = (loadedMeta.vehicleIds as string[]) || [];
+  const durFrames = Number(loadedMeta.durFrames) || 0;
+  const handleSeek = useCallback((f: number) => {
+    setAutoPlay(false);
+    viewerPaneRef.current?.seek(f);
+  }, []);
+  const getFrame = useCallback(() => viewerPaneRef.current?.getFrame() ?? 0, []);
 
   return (
     <ViewerErrorBoundary>
@@ -653,23 +905,79 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl, framesP
                 <div className="flex justify-between"><span className="text-[#8a9590]">동적차량 수</span><span className="font-semibold text-[#5a665e]">{(loadedMeta.vehicleCount as number) ?? 0}대</span></div>
               </div>
             </div>
+
+            {/* 사고 분석 — 최근접(충돌 후보) 시점 + 거리 측정 차량쌍 */}
+            <div className="rounded-xl border border-[#dae3dd] p-4">
+              <p className="text-sm font-semibold text-[#5a665e] mb-3">사고 분석</p>
+              {collisionMeta ? (
+                <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm">
+                  <div className="font-semibold text-red-700">⚠ 최근접 시점</div>
+                  <div className="mt-1 text-[#5a665e]">
+                    t = {(collisionMeta.frame / 10).toFixed(1)}s ·{' '}
+                    {collisionMeta.aId === 'ego' ? 'ego' : `#${collisionMeta.aId}`} ↔{' '}
+                    {collisionMeta.bId === 'ego' ? 'ego' : `#${collisionMeta.bId}`}
+                  </div>
+                  <div className="text-[#5a665e]">최소거리 ≈ {collisionMeta.distanceM.toFixed(1)} m</div>
+                </div>
+              ) : (
+                <p className="mb-3 text-xs text-[#8a9590]">차량쌍 데이터 없음</p>
+              )}
+              <div className="space-y-2">
+                {[{ label: '차량 A', value: pairA, onChange: setPairA },
+                  { label: '차량 B', value: pairB, onChange: setPairB }].map(({ label, value, onChange }) => (
+                  <label key={label} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="text-[#8a9590]">{label}</span>
+                    <select
+                      value={value}
+                      onChange={(e) => onChange(e.target.value)}
+                      className="rounded-lg border border-[#dae3dd] bg-white px-2 py-1 text-sm text-[#5a665e]"
+                    >
+                      <option value="">—</option>
+                      {vehicleIds.map((id) => (
+                        <option key={id} value={id}>{id === 'ego' ? 'ego (블랙박스)' : `#${id}`}</option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+                <p className="text-[11px] leading-relaxed text-[#8a9590]">
+                  거리·속도는 단안 추정 스케일(≈) 기준. Waymo GT 교차검증 오차 약 2%.
+                </p>
+              </div>
+            </div>
           </div>
 
-          <ViewerPane
-            key={`${resultUrl ?? ''}-${resolvedVehiclesUrl ?? ''}`}
-            ref={viewerPaneRef}
-            splatUrl={resultUrl}
-            vehiclesUrl={resolvedVehiclesUrl}
-            showVehicles={showVehicles}
-            showEgo={showEgo}
-            showTrajectoryLines={showTrajectoryLines}
-            targetIdsCsv={targetIds}
-            autoPlay={autoPlay}
-            playbackSpeed={playbackSpeed}
-            playbackLoop={true}
-            onStatusChange={setStatus}
-            onLoadedMeta={handleLoadedMeta}
-          />
+          <div>
+            <ViewerPane
+              key={`${resultUrl ?? ''}-${resolvedVehiclesUrl ?? ''}`}
+              ref={viewerPaneRef}
+              splatUrl={resultUrl}
+              vehiclesUrl={resolvedVehiclesUrl}
+              showVehicles={showVehicles}
+              showEgo={showEgo}
+              showTrajectoryLines={showTrajectoryLines}
+              targetIdsCsv={targetIds}
+              autoPlay={autoPlay}
+              playbackSpeed={playbackSpeed}
+              playbackLoop={true}
+              viewMode={viewMode}
+              pairA={pairA}
+              pairB={pairB}
+              onViewModeChange={setViewMode}
+              onStatusChange={setStatus}
+              onLoadedMeta={handleLoadedMeta}
+            />
+            {durFrames > 0 && (
+              <TimelineBar
+                durFrames={durFrames}
+                fps={10}
+                collisionFrame={collisionMeta ? collisionMeta.frame : null}
+                playing={autoPlay}
+                onTogglePlay={() => setAutoPlay((v) => !v)}
+                onSeek={handleSeek}
+                getFrame={getFrame}
+              />
+            )}
+          </div>
         </div>
 
         {/* 원본 프레임 + 차량 추적(track id) + 타깃 선택 */}
