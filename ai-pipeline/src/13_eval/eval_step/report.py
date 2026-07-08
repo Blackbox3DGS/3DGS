@@ -50,26 +50,39 @@ def plot_bev_overlay(
     est_ego_xy: np.ndarray,   # aligned est ego, (N,2)
     est_tracks: dict,         # est_tid -> (F,2) aligned est xy
 ) -> Path:
-    fig, ax = plt.subplots(figsize=(9, 9))
-    ax.plot(gt_cam_xy[:, 0], gt_cam_xy[:, 1], "-", color=DEEP_GREEN, lw=2.5,
+    # Driving scenes are long, thin corridors; plotted in raw global xy with an
+    # equal aspect they collapse into a stripe. Rotate into ego-path-aligned
+    # coordinates (along-track vs cross-track) for a readable overlay.
+    origin = gt_cam_xy[0]
+    d = gt_cam_xy[-1] - origin
+    d = d / (np.linalg.norm(d) + 1e-12)
+    Rp = np.array([[d[0], d[1]], [-d[1], d[0]]])   # path dir -> +x
+
+    def _rot(p: np.ndarray) -> np.ndarray:
+        return (p - origin) @ Rp.T
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+    g_ego, e_ego = _rot(gt_cam_xy), _rot(est_ego_xy)
+    ax.plot(g_ego[:, 0], g_ego[:, 1], "-", color=DEEP_GREEN, lw=2.5,
             label="GT ego (camera)")
-    ax.plot(est_ego_xy[:, 0], est_ego_xy[:, 1], "--", color=TEAL, lw=2,
+    ax.plot(e_ego[:, 0], e_ego[:, 1], "--", color=TEAL, lw=2,
             label="Est ego (aligned)")
 
     cmap = plt.cm.tab10
     for i, tid in enumerate(sorted(gt_tracks, key=lambda s: int(s))):
         c = cmap(i % 10)
-        g = gt_tracks[tid]
-        e = est_tracks[tid]
+        g, e = _rot(gt_tracks[tid]), _rot(est_tracks[tid])
         ax.plot(g[:, 0], g[:, 1], "-", color=c, lw=1.8, label=f"GT #{tid}")
         ax.plot(e[:, 0], e[:, 1], "--", color=c, lw=1.4, alpha=0.8,
                 label=f"Est #{tid}")
+        ax.plot(g[0, 0], g[0, 1], "o", color=c, ms=5)
+        ax.plot(e[0, 0], e[0, 1], "o", color=c, ms=5, mfc="none")
 
     ax.set_aspect("equal")
-    ax.set_xlabel("global x (m)")
-    ax.set_ylabel("global y (m)")
-    ax.set_title("BEV trajectory overlay — GT (solid) vs Estimated (dashed)")
-    ax.legend(fontsize=8, ncol=2)
+    ax.set_xlabel("along-track (m)")
+    ax.set_ylabel("cross-track (m)")
+    ax.set_title("BEV trajectory overlay — GT (solid) vs Estimated (dashed), ○ = start")
+    ax.legend(fontsize=8, ncol=6, loc="upper center", bbox_to_anchor=(0.5, -0.18))
     ax.grid(alpha=0.3)
     out = out_dir / "plots" / "bev_overlay.png"
     out.parent.mkdir(parents=True, exist_ok=True)

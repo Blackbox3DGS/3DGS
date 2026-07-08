@@ -1,9 +1,19 @@
 """Extract ground-truth poses / 3D boxes / speeds from a Waymo TFRecord.
 
-Produces a single `gt.json` consumed by the (numpy-only) evaluation steps, so
-TensorFlow + waymo-open-dataset are needed only for this one-shot extraction
-(run it inside the pipeline Docker image or on the GPU server — the local mac
-cannot install them).
+Produces a single `gt.json` consumed by the (numpy-only) evaluation steps.
+
+NO TensorFlow needed: the TFRecord container is a trivial length-prefixed
+binary format read with `struct`, and the Waymo protos (`dataset_pb2`,
+`label_pb2`) are pure-python protobuf gencode. If the `waymo_open_dataset`
+package isn't installed (it has no macOS/arm64 wheels), point
+$WAYMO_PROTO_PATH at a directory containing just the extracted `*_pb2.py`
+files from the wheel:
+
+    pip download waymo-open-dataset-tf-2-12-0 --no-deps \
+        --platform manylinux_2_24_x86_64 --python-version 3.10 \
+        --abi cp310 --only-binary :all: -d wheels
+    unzip wheels/waymo_open_dataset*.whl 'waymo_open_dataset/*_pb2.py' -d protos
+    WAYMO_PROTO_PATH=protos python3 ... extract-gt ...
 
 Per frame we keep:
   * `timestamp_micros`         — for index<->image-filename verification
@@ -27,8 +37,47 @@ from __future__ import annotations
 
 import json
 import os
+import struct
+import sys
 from pathlib import Path
-from typing import Optional, Union
+from typing import Iterator, Optional, Union
+
+
+def _iter_tfrecord(path: Path) -> Iterator[bytes]:
+    """Pure-python TFRecord reader.
+
+    Record layout: u64 length | u32 masked-crc(length) | data | u32 masked-crc(data).
+    CRCs are not verified (we only read local, already-downloaded files).
+    """
+    with open(path, "rb") as f:
+        while True:
+            header = f.read(8)
+            if len(header) < 8:
+                return
+            (length,) = struct.unpack("<Q", header)
+            f.read(4)                     # length crc
+            data = f.read(length)
+            if len(data) < length:
+                return
+            f.read(4)                     # data crc
+            yield data
+
+
+def _import_protos():
+    """Import Waymo protos, falling back to $WAYMO_PROTO_PATH vendored pb2s."""
+    try:
+        from waymo_open_dataset import dataset_pb2, label_pb2
+        return dataset_pb2, label_pb2
+    except ImportError:
+        proto_path = os.environ.get("WAYMO_PROTO_PATH")
+        if not proto_path:
+            raise ImportError(
+                "waymo_open_dataset not installed and WAYMO_PROTO_PATH not set. "
+                "See module docstring for how to vendor the pb2 files."
+            )
+        sys.path.insert(0, str(Path(proto_path).expanduser().resolve()))
+        from waymo_open_dataset import dataset_pb2, label_pb2
+        return dataset_pb2, label_pb2
 
 
 def extract_waymo_gt(
@@ -37,11 +86,7 @@ def extract_waymo_gt(
     every_n: int = 1,
     max_frames: Optional[int] = None,
 ) -> dict:
-    os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
-
-    import tensorflow as tf
-    from waymo_open_dataset import dataset_pb2 as open_dataset
-    from waymo_open_dataset import label_pb2
+    open_dataset, label_pb2 = _import_protos()
 
     tfrecord_path = Path(tfrecord_path).expanduser().resolve()
     if not tfrecord_path.exists():
@@ -59,15 +104,14 @@ def extract_waymo_gt(
     camera_extrinsic = None
     camera_intrinsic = None
 
-    dataset = tf.data.TFRecordDataset(str(tfrecord_path), compression_type="")
-    for idx, data in enumerate(dataset):
+    for idx, data in enumerate(_iter_tfrecord(tfrecord_path)):
         if max_frames is not None and idx >= max_frames:
             break
         if idx % every_n != 0:
             continue
 
         frame = open_dataset.Frame()
-        frame.ParseFromString(bytearray(data.numpy()))
+        frame.ParseFromString(data)
 
         if scene_name is None:
             scene_name = frame.context.name or tfrecord_path.stem
