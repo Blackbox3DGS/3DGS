@@ -46,6 +46,11 @@ def main():
                     help="Ground-align up axis: y+ for the Three.js/gsplat frontend, y- for antimatter15")
     ap.add_argument("--splat_point_size", type=float, default=None)
     ap.add_argument("--splat_max_points", type=int, default=2_000_000)
+    ap.add_argument("--camera_height_prior", type=float, default=1.4,
+                    help="real camera height above road in meters (dashcam ~1.4, "
+                         "Waymo FRONT ~2.115) — sets vehicles.json meters_per_unit")
+    ap.add_argument("--fps", type=float, default=10.0,
+                    help="frame rate of the extracted frames (vehicles.json metadata)")
     args = ap.parse_args()
 
     image_paths = sorted([p for p in Path(args.image_folder).iterdir()
@@ -89,6 +94,8 @@ def main():
             bbox_sequence_path=args.bbox_sequence,
             dynamic_mask_dir=args.dynamic_mask_dir,
             ground_normal=ground_n, ground_point=ground_p,  # 지면 광선 교차로 차량 위치
+            camera_height_prior_m=args.camera_height_prior,
+            fps=args.fps,
         )
 
     print("Done.")

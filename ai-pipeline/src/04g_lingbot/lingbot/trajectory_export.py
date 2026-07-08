@@ -105,6 +105,8 @@ def export_trajectories_json(
     ground_point=None,
     up_axis=(0.0, 1.0, 0.0),
     max_forward_factor: float = 12.0,
+    camera_height_prior_m: float = 1.4,
+    fps: float = 10.0,
 ) -> str:
     """Write vehicles.json (ego + dynamic tracks) in the background's frame.
 
@@ -195,10 +197,22 @@ def export_trajectories_json(
                 cls = tracks.get(tid, {}).get("class_name", "car")
                 vehicles.append({"id": str(tid), "class": cls, "points": pts})
 
+    # Metric scale for the viewer HUD (distance/speed display). The scene is
+    # ground-aligned + recentered but NOT metric; since the road plane sits at
+    # y=0, the ego camera's median height above ground in scene units maps to
+    # the real camera height prior (dashcam ~1.4 m, Waymo FRONT ~2.115 m).
+    ego_y_median = float(np.median(C[:, 1] - road_y)) if S else 0.0
+    meters_per_unit = (
+        camera_height_prior_m / ego_y_median if ego_y_median > 1e-9 else None
+    )
+
     payload = {
         "coord_system": "lingbot-native, ground-aligned + recentered (same frame as background.splat)",
         "note": "points are [x, y, z, frame_idx]; 'ego' is the blackbox camera path; "
                 "dynamic vehicles placed via ego-motion IPM (order-accurate, distance approximate)",
+        "meters_per_unit": meters_per_unit,
+        "camera_height_prior_m": camera_height_prior_m,
+        "fps": fps,
         "vehicles": vehicles,
     }
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
