@@ -47,6 +47,8 @@ LINGBOT_STEPS = [
 STAGE_MODULES = {
     "02_ingest": "02_ingest.ingest",
     "03_seg": "03_seg.seg",
+    # 프레임 근거 충돌 검출 (쉐이크+근접 / 트랙쌍 불연속) — CPU, 수 초.
+    "03c_collision": "03c_collision.collision_step",
     "04_colmap": "04_colmap.colmap_step",
     "04g_lingbot": "04g_lingbot.lingbot",
     "05_depth": "05_depth.depth",
@@ -147,6 +149,7 @@ _ARTIFACT_PATHS = {
     "ingest_vis":          ["02_ingest/sample_grid.png"],
     "segmentation_masks":  ["03_seg/masks"],
     "bbox_sequence":       ["03_seg/bbox_sequence.json"],
+    "collision":           ["03c_collision/collision.json"],
     "seg_overlay_sample":  ["03_seg/seg_overlay_sample.png"],
     "poses":               ["04g_lingbot/poses.npy", "04_colmap/poses.npy"],
     "intrinsics":          ["04g_lingbot/intrinsics.json", "04_colmap/intrinsics.json"],

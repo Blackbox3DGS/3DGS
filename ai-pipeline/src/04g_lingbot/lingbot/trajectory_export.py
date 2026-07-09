@@ -107,6 +107,7 @@ def export_trajectories_json(
     max_forward_factor: float = 12.0,
     camera_height_prior_m: float = 1.4,
     fps: float = 10.0,
+    collision_path=None,          # Stage-03c collision.json — 있으면 페이로드에 임베드
 ) -> str:
     """Write vehicles.json (ego + dynamic tracks) in the background's frame.
 
@@ -206,6 +207,15 @@ def export_trajectories_json(
         camera_height_prior_m / ego_y_median if ego_y_median > 1e-9 else None
     )
 
+    # 프레임 증거 기반 충돌 검출(03c) 결과 — 뷰어가 사고 시점 마커/역할 표시에 사용.
+    collision = None
+    ego_role = None
+    if collision_path and os.path.exists(collision_path):
+        with open(collision_path) as f:
+            col_data = json.load(f)
+        collision = col_data.get("collision")
+        ego_role = col_data.get("ego_role")
+
     payload = {
         "coord_system": "lingbot-native, ground-aligned + recentered (same frame as background.splat)",
         "note": "points are [x, y, z, frame_idx]; 'ego' is the blackbox camera path; "
@@ -213,6 +223,8 @@ def export_trajectories_json(
         "meters_per_unit": meters_per_unit,
         "camera_height_prior_m": camera_height_prior_m,
         "fps": fps,
+        "collision": collision,
+        "ego_role": ego_role,
         "vehicles": vehicles,
     }
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
