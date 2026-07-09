@@ -892,6 +892,10 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl, framesP
     }
   }, []);
 
+  // 3D 데이터(.splat/궤적)가 전혀 없는 잡 — 샘플 궤적을 보여주는 대신 정직하게
+  // 안내하고, 아래의 원본 프레임/추적 패널만 제공한다 (2D 분석은 완료된 상태).
+  const has3d = Boolean(resultUrl || resolvedVehiclesUrl);
+
   const closestApproach = loadedMeta.closestApproach as { frame: number; aId: string; bId: string; distanceM: number } | null | undefined;
   const dataCollision = loadedMeta.dataCollision as { frame_idx: number; time_s?: number; type?: string; confidence?: number; track_ids?: string[] } | null | undefined;
   const vehicleIds = (loadedMeta.vehicleIds as string[]) || [];
@@ -934,7 +938,17 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl, framesP
           {status.phase === 'error' && <div className="text-sm text-red-600">{status.message}</div>}
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
+        {!has3d && (
+          <div className="mb-4 rounded-2xl border border-dashed border-[#dae3dd] bg-[#f7f9f8] px-6 py-10 text-center">
+            <div className="text-2xl">🛰️</div>
+            <p className="mt-2 font-semibold text-[#20543d]">3D 장면 재구성 대기 중</p>
+            <p className="mt-1 text-sm text-[#8a9590]">
+              2D 분석(차량 추적 · 충돌 시점 검출)은 완료되었습니다. 아래 원본 프레임 패널에서 결과를 확인하세요.
+              <br />3D 재구성(LingBot)은 GPU 워커 처리 후 이 화면에 추가됩니다.
+            </p>
+          </div>
+        )}
+        <div className={`grid gap-4 lg:grid-cols-[220px_1fr] ${!has3d ? 'hidden' : ''}`}>
           <div className="space-y-4">
             <div className="rounded-xl border border-[#dae3dd] p-4">
               <p className="text-sm font-semibold text-[#5a665e] mb-3">표시 옵션</p>

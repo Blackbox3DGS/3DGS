@@ -1,0 +1,12 @@
+# ReScene 업로드/분석 서버 (Python 3.10+)
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+
+# 분석 워커가 서브프로세스로 실행하는 ai-pipeline 의존성
+# (같은 인터프리터를 쓰므로 함께 설치)
+torch
+torchvision
+ultralytics
+opencv-python
+numpy
