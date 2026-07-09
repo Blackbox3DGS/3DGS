@@ -346,6 +346,10 @@ interface ViewerPaneProps {
   viewMode: ViewMode;      // '3d' 자유시점 | 'bev' 탑다운(직교) — 사고 재현 기본 분석 뷰
   pairA: string;           // 거리 HUD 대상 차량쌍 (track id)
   pairB: string;
+  // 마커 사양 — 부모가 우선순위(데이터 충돌 > 수동 지정 > 최근접 참고)를 정해 내려줌.
+  markerFrame: number | null;
+  markerTrackIds: string[];          // 비면 프레임 시점의 최근접 쌍 위치 사용
+  markerKind: 'collision' | 'manual' | 'closest' | null;
   onViewModeChange: (m: ViewMode) => void;
   onStatusChange: (s: { phase: string; message: string }) => void;
   onLoadedMeta: (m: Record<string, unknown>) => void;
@@ -357,18 +361,18 @@ interface ViewerPaneRef {
 }
 
 const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPane(props, ref) {
-  const { splatUrl, vehiclesUrl, showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, viewMode, pairA, pairB, onViewModeChange, onStatusChange, onLoadedMeta } = props;
+  const { splatUrl, vehiclesUrl, showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, viewMode, pairA, pairB, markerFrame, markerTrackIds, markerKind, onViewModeChange, onStatusChange, onLoadedMeta } = props;
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hudRef = useRef<HTMLDivElement>(null);   // 거리/속도 HUD — 루프가 직접 갱신(리렌더 없음)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const engineRef = useRef<any>(null);
-  const uiStateRef = useRef({ showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, viewMode, pairA, pairB });
+  const uiStateRef = useRef({ showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, viewMode, pairA, pairB, markerFrame, markerTrackIds, markerKind });
 
   useEffect(() => {
-    uiStateRef.current = { showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, viewMode, pairA, pairB };
-  }, [showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, viewMode, pairA, pairB]);
+    uiStateRef.current = { showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, viewMode, pairA, pairB, markerFrame, markerTrackIds, markerKind };
+  }, [showVehicles, showEgo, showTrajectoryLines, targetIdsCsv, autoPlay, playbackSpeed, playbackLoop, viewMode, pairA, pairB, markerFrame, markerTrackIds, markerKind]);
 
   useEffect(() => {
     let disposed = false;
@@ -493,26 +497,42 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
           vehicles.map((v: any) => ({ id: v.id, isEgo: v.isEgo, points: v.points })),
         );
 
-        // 충돌 링: 최근접 프레임의 두 차량 중점, 노면 위에 상시 표시(펄스).
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let collisionRing: any = null;
-        if (collision) {
+        // 사고/최근접 마커 링 — 하나 만들어두고 루프에서 마커 사양(부모가 내려줌)이
+        // 바뀔 때 위치·색만 갱신. 빨강=검출/수동 사고 시점, 틸=최근접(참고용).
+        const ringR = carScale * 1.6;
+        const markerRing = new THREE.Mesh(
+          new THREE.RingGeometry(ringR * 0.72, ringR, 48),
+          new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }),
+        );
+        markerRing.rotation.x = -Math.PI / 2;
+        markerRing.visible = false;
+        scene.add(markerRing);
+
+        // 마커 위치 계산: 지정 트랙들(또는 해당 프레임 전체 차량 중 최근접 쌍)의 중점.
+        const markerPosition = (frame: number, trackIds: string[]): [number, number] | null => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const byId = new Map<string, any>(vehicles.map((v: any) => [v.id, v]));
-          const pa = positionAtFrame(byId.get(collision.aId)?.points ?? [], collision.frame);
-          const pb = positionAtFrame(byId.get(collision.bId)?.points ?? [], collision.frame);
-          if (pa && pb) {
-            const mx = (pa[0] + pb[0]) / 2, mz = (pa[2] + pb[2]) / 2;
-            const rOuter = Math.max(collision.distanceUnits * 0.75, carScale * 1.2);
-            collisionRing = new THREE.Mesh(
-              new THREE.RingGeometry(rOuter * 0.72, rOuter, 48),
-              new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }),
-            );
-            collisionRing.rotation.x = -Math.PI / 2;
-            collisionRing.position.set(mx, groundAt(mx, mz) + maxDim * 0.002, mz);
-            scene.add(collisionRing);
+          const pts: Array<[number, number, number]> = [];
+          for (const tid of trackIds) {
+            const p = positionAtFrame(byId.get(tid)?.points ?? [], frame);
+            if (p) pts.push(p);
           }
-        }
+          if (!pts.length && collision && frame === collision.frame) {
+            for (const tid of [collision.aId, collision.bId]) {
+              const p = positionAtFrame(byId.get(tid)?.points ?? [], frame);
+              if (p) pts.push(p);
+            }
+          }
+          if (!pts.length) {
+            // 트랙 id 미해결(별도 추적 실행의 id 등) — ego 충돌 마커는 ego 위치가 자연스러움.
+            const p = positionAtFrame(byId.get('ego')?.points ?? [], frame);
+            if (p) pts.push(p);
+          }
+          if (!pts.length) return null;
+          const mx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+          const mz = pts.reduce((s, p) => s + p[2], 0) / pts.length;
+          return [mx, mz];
+        };
 
         // 선택 차량쌍 거리 표시선 (dashed) — 루프에서 양 끝점 갱신.
         const pairLineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
@@ -609,8 +629,9 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
           renderer, scene, camera, controls, vehicles, grid, groundY, groundAt, focusScene,
           startTimeRef, pausePlayheadRef, lastAutoPlayRef,
           bevCamera, bevControls, splatPoints,
-          scale, speedSeries, collision, collisionRing, pairLine,
+          scale, speedSeries, collision, markerRing, markerPosition, pairLine,
           lastSampleInput: 0, lastViewMode: '3d' as ViewMode, lastHudAt: 0,
+          lastMarkerKey: '',
         };
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -624,10 +645,14 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
           durFrames,
           metersPerUnit: mpu,
           scaleSource: scale.source,
-          collision: collision && mpu ? {
+          // 궤적상 최근접 쌍 — "참고용" (궤적 오차로 실제 충돌이 아닐 수 있음)
+          closestApproach: collision && mpu ? {
             frame: collision.frame, aId: collision.aId, bId: collision.bId,
             distanceM: collision.distanceUnits * mpu,
           } : null,
+          // 프레임 증거 기반 검출 결과 (파이프라인 03c가 vehicles.json에 기록)
+          dataCollision: (vehMeta as Record<string, unknown>).collision ?? null,
+          egoRole: (vehMeta as Record<string, unknown>).ego_role ?? null,
         });
         onStatusChange({ phase: 'ready', message: '뷰어 준비 완료' });
 
@@ -684,11 +709,31 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
             e.lastViewMode = st.viewMode;
           }
 
-          // ── 충돌 링 펄스 ──────────────────────────────────────────────
-          if (e.collisionRing) {
-            const pulse = 0.72 + 0.28 * Math.sin(now / 280);
-            e.collisionRing.material.opacity = pulse;
-            e.collisionRing.visible = st.showVehicles;
+          // ── 사고/최근접 마커 링 (사양 변경 시 위치·색 갱신 + 펄스) ────
+          {
+            const key = `${st.markerKind ?? ''}:${st.markerFrame ?? ''}:${(st.markerTrackIds || []).join('|')}`;
+            if (key !== e.lastMarkerKey) {
+              e.lastMarkerKey = key;
+              if (st.markerKind && st.markerFrame != null) {
+                const mp = e.markerPosition(st.markerFrame, st.markerTrackIds || []);
+                if (mp) {
+                  e.markerRing.position.set(mp[0], e.groundAt(mp[0], mp[1]) + 0.02, mp[1]);
+                  e.markerRing.material.color.setHex(
+                    st.markerKind === 'closest' ? 0x299283 : st.markerKind === 'manual' ? 0xf59e0b : 0xef4444,
+                  );
+                  e.markerRing.visible = true;
+                } else {
+                  e.markerRing.visible = false;
+                }
+              } else {
+                e.markerRing.visible = false;
+              }
+            }
+            if (e.markerRing.visible) {
+              e.markerRing.material.opacity =
+                (st.markerKind === 'closest' ? 0.5 : 0.72) + 0.28 * Math.sin(now / 280);
+              if (!st.showVehicles) e.markerRing.material.opacity *= 0.4;
+            }
           }
 
           // ── 선택 차량쌍 거리선 + HUD (거리 m · 속도 km/h) ─────────────
@@ -752,7 +797,7 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (e.vehicles || []).forEach((v: any) => { disposeThreeObject(v.model); v.line?.geometry?.dispose?.(); v.line?.material?.dispose?.(); });
           e.pairLine?.geometry?.dispose?.(); e.pairLine?.material?.dispose?.();
-          e.collisionRing?.geometry?.dispose?.(); e.collisionRing?.material?.dispose?.();
+          e.markerRing?.geometry?.dispose?.(); e.markerRing?.material?.dispose?.();
           e.scene?.traverse?.((o: any) => { if (o.isPoints) { o.geometry?.dispose?.(); o.material?.dispose?.(); } });
           e.renderer?.dispose?.();
         } catch (_) {}
@@ -821,15 +866,25 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl, framesP
   const [pairA, setPairA] = useState('ego');
   const [pairB, setPairB] = useState('');
 
+  const [manualFrame, setManualFrame] = useState<number | null>(null);
+
   const resolvedVehiclesUrl = vehiclesUrl ?? trajectoryUrl;
   const viewerPaneRef = useRef<ViewerPaneRef>(null);
   const handleLoadedMeta = useCallback((meta: Record<string, unknown>) => {
     setLoadedMeta(meta || {});
-    // 거리 HUD 기본 쌍 = 최근접(충돌 후보) 쌍, 없으면 ego + 첫 동적차량.
-    const col = meta?.collision as { aId?: string; bId?: string } | null;
+    setManualFrame(null);
+    // 거리 HUD 기본 쌍: 검출된 충돌 트랙쌍 > 최근접 쌍 > ego+첫 동적차량.
+    const dc = meta?.dataCollision as { track_ids?: string[] } | null;
+    const ca = meta?.closestApproach as { aId?: string; bId?: string } | null;
     const ids = (meta?.vehicleIds as string[]) || [];
-    if (col?.aId && col?.bId) {
-      setPairA(col.aId); setPairB(col.bId);
+    // 검출 트랙 id가 이 씬의 궤적에 실제로 존재할 때만 사용 (별도 추적 실행 id 방어)
+    const dcIds = (dc?.track_ids || []).filter((t) => ids.includes(t));
+    if (dcIds.length >= 2) {
+      setPairA(dcIds[0]); setPairB(dcIds[1]);
+    } else if (dcIds.length === 1 && ids.includes('ego')) {
+      setPairA('ego'); setPairB(dcIds[0]);
+    } else if (ca?.aId && ca?.bId) {
+      setPairA(ca.aId); setPairB(ca.bId);
     } else {
       const firstDyn = ids.find((id) => id !== 'ego');
       if (ids.includes('ego')) setPairA('ego');
@@ -837,14 +892,30 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl, framesP
     }
   }, []);
 
-  const collisionMeta = loadedMeta.collision as { frame: number; aId: string; bId: string; distanceM: number } | null | undefined;
+  const closestApproach = loadedMeta.closestApproach as { frame: number; aId: string; bId: string; distanceM: number } | null | undefined;
+  const dataCollision = loadedMeta.dataCollision as { frame_idx: number; time_s?: number; type?: string; confidence?: number; track_ids?: string[] } | null | undefined;
   const vehicleIds = (loadedMeta.vehicleIds as string[]) || [];
   const durFrames = Number(loadedMeta.durFrames) || 0;
+
+  // 마커 우선순위: 수동 지정 > 프레임 증거 검출 > 최근접(참고 표시).
+  const marker = manualFrame != null
+    ? { kind: 'manual' as const, frame: manualFrame, trackIds: [] as string[] }
+    : dataCollision
+      ? { kind: 'collision' as const, frame: dataCollision.frame_idx, trackIds: dataCollision.track_ids ?? [] }
+      : closestApproach
+        ? { kind: 'closest' as const, frame: closestApproach.frame, trackIds: [closestApproach.aId, closestApproach.bId] }
+        : null;
+
   const handleSeek = useCallback((f: number) => {
     setAutoPlay(false);
     viewerPaneRef.current?.seek(f);
   }, []);
   const getFrame = useCallback(() => viewerPaneRef.current?.getFrame() ?? 0, []);
+  const markManualHere = useCallback(() => {
+    const f = Math.round(viewerPaneRef.current?.getFrame() ?? 0);
+    setAutoPlay(false);
+    setManualFrame(f);
+  }, []);
 
   return (
     <ViewerErrorBoundary>
@@ -906,22 +977,60 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl, framesP
               </div>
             </div>
 
-            {/* 사고 분석 — 최근접(충돌 후보) 시점 + 거리 측정 차량쌍 */}
+            {/* 사고 분석 — 프레임 증거 충돌 / 수동 지정 / 최근접(참고) + 거리 측정 차량쌍 */}
             <div className="rounded-xl border border-[#dae3dd] p-4">
               <p className="text-sm font-semibold text-[#5a665e] mb-3">사고 분석</p>
-              {collisionMeta ? (
+
+              {dataCollision ? (
                 <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm">
-                  <div className="font-semibold text-red-700">⚠ 최근접 시점</div>
-                  <div className="mt-1 text-[#5a665e]">
-                    t = {(collisionMeta.frame / 10).toFixed(1)}s ·{' '}
-                    {collisionMeta.aId === 'ego' ? 'ego' : `#${collisionMeta.aId}`} ↔{' '}
-                    {collisionMeta.bId === 'ego' ? 'ego' : `#${collisionMeta.bId}`}
+                  <div className="font-semibold text-red-700">
+                    ⚠ 충돌 검출 — {dataCollision.type === 'ego' ? '당사자 (자기차량 관여)' : '목격자 (제3자 충돌)'}
                   </div>
-                  <div className="text-[#5a665e]">최소거리 ≈ {collisionMeta.distanceM.toFixed(1)} m</div>
+                  <div className="mt-1 text-[#5a665e]">
+                    t = {((dataCollision.time_s ?? dataCollision.frame_idx / 10)).toFixed(1)}s
+                    {dataCollision.track_ids?.length ? ` · 트랙 ${dataCollision.track_ids.map((t) => `#${t}`).join(', ')}` : ''}
+                  </div>
+                  {dataCollision.confidence != null && (
+                    <div className="text-[#5a665e]">신뢰도 {(dataCollision.confidence * 100).toFixed(0)}% (영상 증거 기반)</div>
+                  )}
                 </div>
               ) : (
-                <p className="mb-3 text-xs text-[#8a9590]">차량쌍 데이터 없음</p>
+                <div className="mb-3 rounded-lg bg-[#f7f9f8] px-3 py-2 text-sm">
+                  <div className="font-semibold text-[#5a665e]">충돌 미검출</div>
+                  {closestApproach && (
+                    <div className="mt-1 text-xs text-[#8a9590]">
+                      최근접 시점(참고): t = {(closestApproach.frame / 10).toFixed(1)}s ·{' '}
+                      {closestApproach.aId === 'ego' ? 'ego' : `#${closestApproach.aId}`} ↔{' '}
+                      {closestApproach.bId === 'ego' ? 'ego' : `#${closestApproach.bId}`} ≈ {closestApproach.distanceM.toFixed(1)} m
+                      <br />궤적 근사값이므로 실제 충돌 근거가 아닙니다.
+                    </div>
+                  )}
+                </div>
               )}
+
+              {manualFrame != null && (
+                <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm">
+                  <div className="font-semibold text-amber-700">✎ 수동 지정 사고 시점</div>
+                  <div className="mt-1 text-[#5a665e]">t = {(manualFrame / 10).toFixed(1)}s (프레임 {manualFrame})</div>
+                </div>
+              )}
+              <div className="mb-3 flex gap-2">
+                <button
+                  onClick={markManualHere}
+                  className="flex-1 rounded-lg border border-[#dae3dd] bg-white px-2 py-1.5 text-xs font-medium text-[#5a665e] hover:bg-[#f7f9f8]"
+                  title="영상을 보고 판단한 사고 순간을 현재 재생 프레임으로 지정"
+                >
+                  현재 프레임을 사고 시점으로
+                </button>
+                {manualFrame != null && (
+                  <button
+                    onClick={() => setManualFrame(null)}
+                    className="rounded-lg border border-[#dae3dd] bg-white px-2 py-1.5 text-xs text-[#8a9590] hover:bg-[#f7f9f8]"
+                  >
+                    해제
+                  </button>
+                )}
+              </div>
               <div className="space-y-2">
                 {[{ label: '차량 A', value: pairA, onChange: setPairA },
                   { label: '차량 B', value: pairB, onChange: setPairB }].map(({ label, value, onChange }) => (
@@ -962,6 +1071,9 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl, framesP
               viewMode={viewMode}
               pairA={pairA}
               pairB={pairB}
+              markerFrame={marker ? marker.frame : null}
+              markerTrackIds={marker ? marker.trackIds : []}
+              markerKind={marker ? marker.kind : null}
               onViewModeChange={setViewMode}
               onStatusChange={setStatus}
               onLoadedMeta={handleLoadedMeta}
@@ -970,7 +1082,8 @@ export function Viewer3D({ jobId, resultUrl, trajectoryUrl, vehiclesUrl, framesP
               <TimelineBar
                 durFrames={durFrames}
                 fps={10}
-                collisionFrame={collisionMeta ? collisionMeta.frame : null}
+                markerFrame={marker ? marker.frame : null}
+                markerKind={marker ? marker.kind : null}
                 playing={autoPlay}
                 onTogglePlay={() => setAutoPlay((v) => !v)}
                 onSeek={handleSeek}
