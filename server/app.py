@@ -181,6 +181,13 @@ async def set_target(job_id: str, body: dict, user: str = Depends(current_user))
     return jobs.write_meta(job_id, targetIds=body.get("targetIds"))
 
 
+@app.on_event("startup")
+async def _recover():
+    n = jobs.recover_stale_jobs()
+    if n:
+        logger.info("recovered %d stale job(s) after restart", n)
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
     uvicorn.run(app, host="127.0.0.1", port=port)

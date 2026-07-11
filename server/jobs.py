@@ -44,6 +44,9 @@ JOBS_ROOT = DATA_ROOT / "jobs"
 JOBS_ROOT.mkdir(parents=True, exist_ok=True)
 
 _LOCK = threading.Lock()
+# 분석 잡 직렬화 — LingBot CPU 추론이 코어를 전부 쓰므로 동시 실행하면 서로
+# 수 배 느려지고 메모리 압박(체크포인트 4.6GB×N)으로 죽는다. 기본 1개씩.
+_WORK_SEM = threading.Semaphore(int(os.environ.get("RESCENE_MAX_WORKERS", "1")))
 
 STATUS_DESC = {
     "PENDING": "대기 중",
@@ -116,6 +119,7 @@ def create_job(upload_name: str, file_bytes: bytes, owner: str, base_url: str) -
         "currentStep": "대기",
         "createdAt": datetime.now().isoformat(timespec="seconds"),
         "incidentDate": datetime.now().date().isoformat(),
+        "baseUrl": base_url,   # 재시작 복구(requeue) 시 결과 URL 재구성용
     }
     with open(_meta_path(job_id), "w") as f:
         json.dump(meta, f, ensure_ascii=False)
@@ -123,6 +127,30 @@ def create_job(upload_name: str, file_bytes: bytes, owner: str, base_url: str) -
     t = threading.Thread(target=_worker, args=(job_id, base_url), daemon=True)
     t.start()
     return meta
+
+
+def recover_stale_jobs() -> int:
+    """서버 시작 시 미완료 잡 재개.
+
+    워커는 데몬 스레드라 서버가 내려가면 잡이 PROCESSING 상태로 고착된다.
+    input.mp4 와 중간 산출물은 디스크에 있으므로 워커를 다시 태우면 이어서
+    (파이프라인 스테이지는 기존 아티팩트를 재사용) 완료할 수 있다.
+    """
+    n = 0
+    for d in sorted(JOBS_ROOT.iterdir()):
+        meta = read_meta(d.name)
+        if not meta or meta.get("status") not in ("PENDING", "PRE_PROCESSING", "PROCESSING"):
+            continue
+        if not (d / "input.mp4").exists():
+            write_meta(d.name, status="FAILED",
+                       statusDescription="서버 재시작 중 입력 유실 — 다시 업로드해 주세요")
+            continue
+        base_url = meta.get("baseUrl") or "http://127.0.0.1:8090"
+        logger.info("recovering stale job %s (%s)", d.name, meta.get("status"))
+        write_meta(d.name, status="PENDING", currentStep="재시작 후 재개 대기")
+        threading.Thread(target=_worker, args=(d.name, base_url), daemon=True).start()
+        n += 1
+    return n
 
 
 # ── 분석 워커 ─────────────────────────────────────────────────────────────────
@@ -153,7 +181,8 @@ def _worker(job_id: str, base_url: str) -> None:
     log = d / "worker.log"
     files = f"{base_url}/files/{job_id}"
     py = sys.executable
-    try:
+    with _WORK_SEM:   # 잡 직렬화 — 동시 추론은 서로 수 배 느려지고 OOM 위험
+      try:
         t0 = time.time()
         write_meta(job_id, status="PRE_PROCESSING", progress=10, currentStep="프레임 추출")
 
@@ -214,7 +243,7 @@ def _worker(job_id: str, base_url: str) -> None:
                    currentStep="완료", statusDescription=desc,
                    elapsedSec=round(time.time() - t0, 1), **updates)
         logger.info("job %s completed in %.1fs", job_id, time.time() - t0)
-    except Exception as e:  # noqa: BLE001 — 워커 실패는 상태로 보고
+      except Exception as e:  # noqa: BLE001 — 워커 실패는 상태로 보고
         logger.exception("job %s failed", job_id)
         write_meta(job_id, status="FAILED", progress=100,
                    statusDescription=f"분석 실패: {e}", currentStep="실패")
