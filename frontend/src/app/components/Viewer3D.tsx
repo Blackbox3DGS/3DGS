@@ -38,7 +38,9 @@ const DYNAMIC_COLORS = [0x2563eb, 0xef4444, 0xf59e0b, 0xa855f7, 0x06b6d4, 0xec48
 const VEHICLE_CLASSES = new Set(['car', 'truck', 'bus', 'motorcycle', 'bicycle']);
 const MIN_TRACK_POINTS = 5;
 const FRAME_FPS = 10;            // vehicles.json의 frame_idx → 재생 fps
-const SPLAT_POINT_SIZE = 0.05;   // THREE.Points 점 크기(월드 단위, sizeAttenuation)
+// THREE.Points 점 크기 = 씬 최대치수 × 이 비율. lingbot 씬 스케일은 임의라
+// (Waymo ~10유닛, 사고 클립 ~1유닛) 고정값이면 작은 씬에서 점이 덩어리진다.
+const SPLAT_POINT_FRAC = 0.005;
 const VEHICLE_SCALE_FRAC = 0.015; // 차량 크기 = 씬 최대치수 × 이 비율 (배경/카메라와 독립 — 이 값만 차 크기에 영향)
 const MIRROR_X = true; // lingbot world handedness 보정. 운전자 전방(focus)시점에서 나무가 원본대로 왼쪽(데이터 확인 93%). splat+차량 일관 적용. (좌우는 시점 의존 — 기본 focus 시점에서 판단)
 const MX = MIRROR_X ? -1 : 1;
@@ -202,7 +204,7 @@ async function loadSplatAsPoints(THREE: any, url: string | undefined) {
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     const mat = new THREE.PointsMaterial({
-      size: SPLAT_POINT_SIZE, sizeAttenuation: true, vertexColors: true,
+      size: 0.05, sizeAttenuation: true, vertexColors: true,   // bbox 계산 후 씬 비례로 재설정
       map: makeDiscTexture(THREE), alphaTest: 0.4, transparent: true, depthWrite: true,
     });
     // eslint-disable-next-line no-console
@@ -457,6 +459,12 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
 
         // 차량 크기를 씬에 비례하게 (네이티브=비미터) + 도로 평면 y 추정.
         const carScale = maxDim * VEHICLE_SCALE_FRAC;
+        // 점 크기도 씬 비례 — Waymo(~10유닛)와 사고 클립(~1유닛)이 함께 자연스럽게.
+        const baseSplatSize = maxDim * SPLAT_POINT_FRAC;
+        if (splatPoints) {
+          splatPoints.material.size = baseSplatSize;
+          splatPoints.material.needsUpdate = true;
+        }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         vehicles.forEach((v: any) => v.model.scale.setScalar(carScale));
         const dynY: number[] = [];
@@ -628,7 +636,7 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
         engineRef.current = {
           renderer, scene, camera, controls, vehicles, grid, groundY, groundAt, focusScene,
           startTimeRef, pausePlayheadRef, lastAutoPlayRef,
-          bevCamera, bevControls, splatPoints,
+          bevCamera, bevControls, splatPoints, baseSplatSize,
           scale, speedSeries, collision, markerRing, markerPosition, pairLine,
           lastSampleInput: 0, lastViewMode: '3d' as ViewMode, lastHudAt: 0,
           lastMarkerKey: '',
@@ -703,7 +711,7 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
             // 직교 투영에서는 sizeAttenuation 점 크기가 카메라 높이에 눌려
             // 작아지므로 BEV 진입 시 점 크기를 보정한다.
             if (e.splatPoints) {
-              e.splatPoints.material.size = bev ? SPLAT_POINT_SIZE * 3 : SPLAT_POINT_SIZE;
+              e.splatPoints.material.size = bev ? e.baseSplatSize * 3 : e.baseSplatSize;
               e.splatPoints.material.needsUpdate = true;
             }
             e.lastViewMode = st.viewMode;
