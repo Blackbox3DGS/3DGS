@@ -154,6 +154,35 @@ def _apply_dynamic_masks(conf: np.ndarray, dynamic_mask_dir: str,
     return zeroed
 
 
+def _apply_static_overlay_mask(conf: np.ndarray, images) -> int:
+    """Zero confidence on temporally-static pixels (ego hood, timestamps, logos).
+
+    A dashcam's own bonnet fills the bottom of EVERY frame; back-projecting it
+    at each frame smears (often brightly colored) blobs along the whole path —
+    the dominant visual artifact on hood-visible footage. Static overlays
+    (timestamp, brand watermark) leave floating text streaks the same way.
+
+    Both are the only things whose pixels barely change across the clip while
+    the world streams past, so a per-pixel temporal std threshold isolates
+    them: a strict global threshold for overlays, a looser one restricted to
+    the bottom band for the (slightly reflective) hood.
+    """
+    arr = np.asarray(images, dtype=np.float32)          # (S, 3, H, W) in [0,1]
+    std = arr.std(axis=0).mean(axis=0)                  # (H, W)
+    H = std.shape[0]
+
+    strict = std < 0.008                                 # 워터마크/로고 수준 완전 정적
+    hood = std < 0.025                                   # 보닛(반사로 약간 변함)
+    hood[: int(H * 0.55)] = False                        # 하단 45%만
+    mask = strict | hood
+
+    conf[:, mask] = 0.0
+    n = int(mask.sum())
+    print(f"Static-overlay mask (hood/watermark): zeroed {n} px/frame "
+          f"({n / mask.size * 100:.1f}% of frame)")
+    return n
+
+
 def _apply_sky_mask(conf: np.ndarray, image_folder, images, sky_mask_dir):
     """Run LingBot's ONNX sky segmenter, loaded by file path to bypass
     `lingbot_map/vis/__init__.py` (which eagerly imports viser). The sky module
@@ -221,6 +250,9 @@ def predictions_to_splat(
         n_dyn = _apply_dynamic_masks(conf, dynamic_mask_dir, frame_paths)
         print(f"Dynamic masking: zeroed {n_dyn} pixels from {dynamic_mask_dir}")
 
+    # 보닛/워터마크 등 시간적 정적 픽셀 제거 — 경로 전체에 색 얼룩을 남기는 주범.
+    _apply_static_overlay_mask(conf, images)
+
     xyz = np.asarray(world_points).reshape(-1, 3).astype(np.float32)
     colors = np.asarray(images).transpose(0, 2, 3, 1).reshape(-1, 3)
     rgb = np.clip(colors * 255.0, 0, 255).astype(np.uint8)
@@ -228,15 +260,23 @@ def predictions_to_splat(
 
     # 신뢰도 분포 진단 — 장치/정밀도(fp32 CPU vs bf16 GPU)에 따라 스케일이 달라져
     # 임계 튜닝이 필요할 때 바로 보이도록 항상 출력.
+    eff_threshold = conf_threshold
     finite_conf = conf_flat[np.isfinite(conf_flat) & (conf_flat > 0)]
     if finite_conf.size:
         q = np.percentile(finite_conf, [5, 50, 95, 99])
         print(f"Confidence percentiles (nonzero) p5/p50/p95/p99: "
               f"{q[0]:.3f}/{q[1]:.3f}/{q[2]:.3f}/{q[3]:.3f}")
+        # 퇴화 분포(CPU fp32: 값이 한 점에 밀집)면 임계 비교가 사실상 난수 필터가
+        # 된다 — 절반이 경계값에 걸려 구조물이 무작위로 사라짐. 마스크(conf=0)만
+        # 적용하고 임계는 무시한다.
+        if q[2] - q[0] < 0.05 and conf_threshold > 0:
+            print(f"Degenerate confidence spread (p95-p5={q[2]-q[0]:.4f}) — "
+                  f"threshold {conf_threshold} ignored, keeping all unmasked points")
+            eff_threshold = 0.0
 
-    keep = (conf_flat > conf_threshold) & np.isfinite(xyz).all(axis=1)
+    keep = (conf_flat > eff_threshold) & np.isfinite(xyz).all(axis=1)
     xyz, rgb = xyz[keep], rgb[keep]
-    print(f"Confidence filter (conf>{conf_threshold}): {int(keep.sum())}/{keep.size} points kept")
+    print(f"Confidence filter (conf>{eff_threshold}): {int(keep.sum())}/{keep.size} points kept")
     if len(xyz) == 0:
         raise RuntimeError("No points survived filtering — lower conf_threshold?")
 
