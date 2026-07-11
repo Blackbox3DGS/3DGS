@@ -226,6 +226,14 @@ def predictions_to_splat(
     rgb = np.clip(colors * 255.0, 0, 255).astype(np.uint8)
     conf_flat = conf.reshape(-1)
 
+    # 신뢰도 분포 진단 — 장치/정밀도(fp32 CPU vs bf16 GPU)에 따라 스케일이 달라져
+    # 임계 튜닝이 필요할 때 바로 보이도록 항상 출력.
+    finite_conf = conf_flat[np.isfinite(conf_flat) & (conf_flat > 0)]
+    if finite_conf.size:
+        q = np.percentile(finite_conf, [5, 50, 95, 99])
+        print(f"Confidence percentiles (nonzero) p5/p50/p95/p99: "
+              f"{q[0]:.3f}/{q[1]:.3f}/{q[2]:.3f}/{q[3]:.3f}")
+
     keep = (conf_flat > conf_threshold) & np.isfinite(xyz).all(axis=1)
     xyz, rgb = xyz[keep], rgb[keep]
     print(f"Confidence filter (conf>{conf_threshold}): {int(keep.sum())}/{keep.size} points kept")
