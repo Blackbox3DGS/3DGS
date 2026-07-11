@@ -189,6 +189,9 @@ def _worker(job_id: str, base_url: str) -> None:
                        "--bbox_sequence", d / "pipeline" / "03_seg" / "bbox_sequence.json",
                        "--collision", collision_path,
                        "--camera_height_prior", os.environ.get("CAMERA_HEIGHT_PRIOR", "1.4"),
+                       # CPU(fp32)에선 신뢰도가 ~1.0에 몰려 GPU 기본값(2.0)이 전부
+                       # 걸러버린다 — 실측 기준 1.0이 적정 (docs/METRICS.md 4절).
+                       "--conf_threshold", os.environ.get("LINGBOT_CONF_THRESHOLD", "1.0"),
                        "--out_splat", d / "scene.splat",
                        "--out_vehicles", d / "scene_vehicles.json"], log)
             if rc == 0 and (d / "scene.splat").exists():
