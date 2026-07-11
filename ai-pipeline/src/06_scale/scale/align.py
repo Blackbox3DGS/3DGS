@@ -8,7 +8,6 @@ import logging
 from pathlib import Path
 
 import numpy as np
-import open3d as o3d
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +28,9 @@ class ScaleAlignmentError(Exception):
 
 def load_sparse_points(ply_path: Path) -> np.ndarray:
     """Load sparse PLY as (N, 3) float64 array."""
+    # 지연 임포트 — open3d는 이 로더에서만 쓰이는데 arm64 mac(py3.14)엔 휠이
+    # 없어, 모듈 레벨 임포트면 fit_ground_plane까지 못 쓰게 된다.
+    import open3d as o3d
     pcd = o3d.io.read_point_cloud(str(ply_path))
     pts = np.asarray(pcd.points)
     if pts.size == 0:
