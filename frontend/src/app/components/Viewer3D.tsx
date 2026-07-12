@@ -396,7 +396,9 @@ const ViewerPane = forwardRef<ViewerPaneRef, ViewerPaneProps>(function ViewerPan
         const container = wrapRef.current!;
         const canvas = canvasRef.current!;
 
-        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        // preserveDrawingBuffer: 캔버스를 이미지로 내보내기(스크린샷/리포트 캡처)
+        // 위해 드로잉 버퍼를 유지한다. 없으면 toDataURL이 빈 이미지를 반환.
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
         renderer.setPixelRatio(window.devicePixelRatio || 1);
         renderer.setClearColor(0x0a0f1a, 1);
 
