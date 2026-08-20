@@ -5,21 +5,24 @@
 
 # --- Python ---
 venv/
+.venv/
 **/__pycache__/
 *.pyc
 
 # --- Node / Frontend ---
-frontend/node_modules/
+node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/.env.local
 
-# --- AI pipeline data / outputs (대용량, git 미추적) ---
+# --- AI pipeline 데이터 / 산출물 (대용량, git 미추적) ---
 ai-pipeline/outputs/
 ai-pipeline/data/
 ai-pipeline/third_party/
 
 # --- 대용량 모델 / 산출물 바이너리 ---
 *.pt
+*.onnx
 *.splat
 
 # --- 프론트 데모/샘플 자산 (로컬 전용, 대용량) ---
@@ -34,3 +37,11 @@ backend/src/main/resources/application-secret.yml
 backend/build/
 backend/.gradle/
 backend/bin/
+
+# --- 업로드 분석 서버 런타임 데이터 ---
+server_data/
+
+# --- 발표자료 생성 산출물 (tools/make_report.py) ---
+report_out/
+*.docx
+~$*.docx
