@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="384"
+     viewBox="0 0 720 384" role="img" aria-label="미터 스케일 보정 — 카메라 높이 prior">
+  <title>미터 스케일 보정 — 카메라 높이 prior</title>
+  <defs>
+    <marker id="tip" viewBox="0 0 8 8" refX="7" refY="4"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0,1 L 7,4 L 0,7 z" fill="#A8C6B8"/>
+    </marker>
+    <marker id="tipa" viewBox="0 0 8 8" refX="7" refY="4"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0,1 L 7,4 L 0,7 z" fill="#5CBFAE"/>
+    </marker>
+  </defs>
+  <rect width="720" height="384" fill="#0F2E1F"/>
+<text x="32" y="44" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="700" fill="#FFFFFF" text-anchor="start">미터 스케일 보정 — 카메라 높이 prior</text>
+<rect x="32" y="72" width="312" height="280" rx="8" fill="rgba(255,255,255,0.030)" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+<text x="48" y="93" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="600" fill="#8FB2A1" text-anchor="start" letter-spacing="0.06em">씬 좌표계</text>
+<rect x="376" y="72" width="312" height="280" rx="8" fill="rgba(255,255,255,0.030)" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+<text x="392" y="93" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="600" fill="#8FB2A1" text-anchor="start" letter-spacing="0.06em">환산식</text>
+<path d="M 64,276 H 312" stroke="#A8C6B8" stroke-width="2" fill="none"/>
+<text x="188" y="302" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="middle">노면 · y = 0 (지면 정렬 후)</text>
+<rect x="140" y="224" width="120" height="52" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<rect x="164" y="192" width="72" height="32" rx="6" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<circle cx="168" cy="276" r="9" fill="#0F2E1F" stroke="#A8C6B8" stroke-width="1.4"/>
+<circle cx="232" cy="276" r="9" fill="#0F2E1F" stroke="#A8C6B8" stroke-width="1.4"/>
+<path d="M 196,172 H 104" fill="none" stroke="#5CBFAE" stroke-width="1" stroke-dasharray="4,3"/>
+<circle cx="200" cy="172" r="5" fill="#5CBFAE"/>
+<text x="212" y="177" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="600" fill="#5CBFAE" text-anchor="start">블랙박스 카메라</text>
+<path d="M 104,172 V 276" fill="none" stroke="#5CBFAE" stroke-width="1.2" marker-start="url(#tipa)" marker-end="url(#tipa)"/>
+<text x="92" y="216" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="600" fill="#5CBFAE" text-anchor="end">ego_y</text>
+<text x="92" y="234" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="end">(scene units)</text>
+<text x="408" y="140" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="700" fill="#5CBFAE" text-anchor="start">meters_per_unit</text>
+<text x="408" y="176" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#FFFFFF" text-anchor="start">실제 카메라 높이 (m)</text>
+<path d="M 408,190 H 656" stroke="rgba(255,255,255,0.16)" stroke-width="1" fill="none"/>
+<text x="408" y="212" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#FFFFFF" text-anchor="start">median(ego_y)</text>
+<text x="408" y="252" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">블랙박스 ≈ 1.4 m</text>
+<text x="408" y="272" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">Waymo FRONT ≈ 2.115 m</text>
+<path d="M 392,300 V 336" stroke="#5CBFAE" stroke-width="2" fill="none"/>
+<text x="408" y="314" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#FFFFFF" text-anchor="start">Waymo GT Umeyama 스케일 대비</text>
+<text x="408" y="332" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">오차 1.9% · sample1 199프레임</text>
+</svg>

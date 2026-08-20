@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="616"
+     viewBox="0 0 860 616" role="img" aria-label="ReScene 시스템 아키텍처">
+  <title>ReScene 시스템 아키텍처</title>
+  <defs>
+    <marker id="tip" viewBox="0 0 8 8" refX="7" refY="4"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0,1 L 7,4 L 0,7 z" fill="#A8C6B8"/>
+    </marker>
+    <marker id="tipa" viewBox="0 0 8 8" refX="7" refY="4"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0,1 L 7,4 L 0,7 z" fill="#5CBFAE"/>
+    </marker>
+  </defs>
+  <rect width="860" height="616" fill="#0F2E1F"/>
+<text x="32" y="44" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="700" fill="#FFFFFF" text-anchor="start">ReScene 시스템 아키텍처</text>
+<rect x="32" y="200" width="796" height="232" rx="8" fill="rgba(255,255,255,0.030)" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+<text x="812" y="221" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="600" fill="#8FB2A1" text-anchor="end" letter-spacing="0.06em">AI Pipeline · Python · GPU</text>
+<rect x="32" y="464" width="536" height="116" rx="8" fill="rgba(255,255,255,0.030)" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+<text x="48" y="485" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="600" fill="#8FB2A1" text-anchor="start" letter-spacing="0.06em">Web Service</text>
+<path d="M 170.0,164 V 232" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 292,268 H 308" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 552,268 H 568" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 690.0,304 V 316 Q 690.0,324 682.0,324 H 178.0 Q 170.0,324 170.0,332 V 344" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 292,380 H 308" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 552,380 H 568" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 430.0,416 V 496" fill="none" stroke="#5CBFAE" stroke-width="1.2" marker-end="url(#tip)"/>
+<text x="440.0" y="460.0" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">.splat + vehicles.json</text>
+<path d="M 292,530 H 308" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<rect x="48" y="96" width="244" height="68" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="64" y="126.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">블랙박스 영상</text>
+<text x="64" y="149.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">단안 mp4 · Waymo TFRecord</text>
+<rect x="48" y="232" width="244" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="64" y="264.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">02 프레임 추출</text>
+<text x="64" y="287.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">ffmpeg · TFRecord</text>
+<rect x="308" y="232" width="244" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="324" y="264.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">03 탐지·추적</text>
+<text x="324" y="287.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">YOLOv8-seg + ByteTrack</text>
+<rect x="568" y="232" width="244" height="72" rx="8" fill="rgba(92,191,174,0.13)" stroke="#5CBFAE" stroke-width="1"/>
+<text x="584" y="264.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#5CBFAE" text-anchor="start">04g LingBot-MAP</text>
+<text x="584" y="287.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">feed-forward 포즈·깊이</text>
+<rect x="48" y="344" width="244" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="64" y="376.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">09 궤적</text>
+<text x="64" y="399.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">IPM + Kalman</text>
+<rect x="308" y="344" width="244" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="324" y="376.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">씬 익스포트</text>
+<text x="324" y="399.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">m 스케일 환산</text>
+<rect x="568" y="344" width="244" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="584" y="376.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">13 평가</text>
+<text x="584" y="399.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">Waymo GT 대비</text>
+<rect x="48" y="496" width="244" height="68" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="64" y="526.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">Backend</text>
+<text x="64" y="549.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">Spring Boot · 작업 관리</text>
+<rect x="308" y="496" width="244" height="68" rx="8" fill="rgba(92,191,174,0.13)" stroke="#5CBFAE" stroke-width="1"/>
+<text x="324" y="526.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#5CBFAE" text-anchor="start">웹 뷰어</text>
+<text x="324" y="549.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">React + Three.js</text>
+</svg>

@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="472"
+     viewBox="0 0 800 472" role="img" aria-label="사고 재현 뷰어 구조">
+  <title>사고 재현 뷰어 구조</title>
+  <defs>
+    <marker id="tip" viewBox="0 0 8 8" refX="7" refY="4"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0,1 L 7,4 L 0,7 z" fill="#A8C6B8"/>
+    </marker>
+    <marker id="tipa" viewBox="0 0 8 8" refX="7" refY="4"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0,1 L 7,4 L 0,7 z" fill="#5CBFAE"/>
+    </marker>
+  </defs>
+  <rect width="800" height="472" fill="#0F2E1F"/>
+<text x="32" y="44" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="700" fill="#FFFFFF" text-anchor="start">사고 재현 뷰어 구조</text>
+<rect x="496" y="72" width="272" height="352" rx="8" fill="rgba(255,255,255,0.030)" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+<text x="752" y="93" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="600" fill="#8FB2A1" text-anchor="end" letter-spacing="0.06em">뷰어 기능</text>
+<path d="M 224,148 H 256" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 224,292 H 256" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 464,148 H 496" fill="none" stroke="#5CBFAE" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 464,292 H 496" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<rect x="32" y="112" width="192" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="48" y="144.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">vehicles.json</text>
+<text x="48" y="167.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">궤적 · meters_per_unit · fps</text>
+<rect x="32" y="256" width="192" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="48" y="288.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">background.splat</text>
+<text x="48" y="311.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">포인트클라우드 배경</text>
+<rect x="256" y="104" width="208" height="88" rx="8" fill="rgba(92,191,174,0.13)" stroke="#5CBFAE" stroke-width="1"/>
+<text x="272" y="136.0" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#5CBFAE" text-anchor="start">analysis.ts</text>
+<text x="272" y="159.0" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">스케일 환산 · 속도 시계열</text>
+<text x="272" y="176.0" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">최근접 시점 탐색</text>
+<rect x="256" y="256" width="208" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="272" y="288.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">Three.js 씬</text>
+<text x="272" y="311.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">차량 GLB · 지면 높이맵 · 궤적 라인</text>
+<rect x="512" y="104" width="240" height="64" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="528" y="132.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">BEV 탑다운</text>
+<text x="528" y="155.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">직교 카메라 · 회전 잠금</text>
+<rect x="512" y="184" width="240" height="64" rx="8" fill="rgba(92,191,174,0.13)" stroke="#5CBFAE" stroke-width="1"/>
+<text x="528" y="212.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#5CBFAE" text-anchor="start">충돌 시점 마커</text>
+<text x="528" y="235.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">노면 링 · 타임라인 표식</text>
+<rect x="512" y="264" width="240" height="64" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="528" y="292.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">거리·속도 HUD</text>
+<text x="528" y="315.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">차량쌍 선택 · m / km/h</text>
+<rect x="512" y="344" width="240" height="64" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="528" y="372.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">타임라인 스크러버</text>
+<text x="528" y="395.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">시킹 · 재생/정지</text>
+</svg>
