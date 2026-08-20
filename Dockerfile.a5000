@@ -1,0 +1,94 @@
+# 3DGS + LingBot-MAP image for RTX A5000 (compute 8.6) on a CUDA 11.7 host driver.
+#
+# Why CUDA 11.8 (not the 12.2.2 of the default Dockerfile):
+#   The host driver here is 515.43.04 (CUDA 11.7). A 12.x container's GPU code
+#   needs driver >= 525/535 and would fail with "insufficient driver". cu118
+#   runtime libraries run fine on a 515 driver thanks to CUDA 11.x minor-version
+#   compatibility — the same reason LingBot's cu118 build worked standalone here.
+#
+# Build:   docker build -f Dockerfile.a5000 -t 3dgs-lingbot:cu118 .
+# Run:     see the docker run command in the project notes (mounts /data/byungk,
+#          sets LINGBOT_MODEL_PATH, runs the --use-lingbot pipeline).
+
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# System dependencies
+RUN apt-get update && apt-get install -y \
+    python3.10 python3.10-dev python3-pip \
+    ffmpeg git wget \
+    libgl1-mesa-glx libglib2.0-0 \
+    cmake ninja-build \
+    libboost-all-dev libeigen3-dev \
+    libflann-dev libfreeimage-dev libmetis-dev \
+    libgoogle-glog-dev libgtest-dev \
+    libsqlite3-dev libglew-dev \
+    qtbase5-dev libqt5opengl5-dev \
+    libcgal-dev libceres-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# COLMAP — only used by the COLMAP *baseline* (Stage 04), which --use-lingbot
+# skips. Comment this block out to cut ~15-20 min off the build if you never
+# run the ablation baseline. arch 86 = RTX A5000 (Ampere).
+RUN git clone https://github.com/colmap/colmap.git /tmp/colmap && \
+    cd /tmp/colmap && git checkout 3.11.1 && \
+    mkdir build && cd build && \
+    cmake .. -GNinja -DCMAKE_CUDA_ARCHITECTURES="86" && \
+    ninja -j$(nproc) && ninja install && \
+    rm -rf /tmp/colmap
+
+# PyTorch — unified at 2.5.1+cu118 (satisfies both the 3DGS CUDA extensions and
+# LingBot, which the standalone setup also ran on 2.5.1+cu118).
+WORKDIR /build
+RUN pip3 install --no-cache-dir \
+    torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+    --index-url https://download.pytorch.org/whl/cu118
+
+# 3DGS python deps.
+#
+# CRITICAL: requirements.txt lists torch/torchvision/torchaudio (unpinned) and
+# packages like ultralytics depend on torch. A plain `pip install` would pull
+# the PyPI-default torch (cu124) and clobber the cu118 build above — then the
+# CUDA extensions fail to compile (container CUDA 11.8 vs torch CUDA 12.4).
+# A constraints file pins the public version so the already-installed cu118
+# wheel stays satisfied and is never reinstalled from PyPI.
+COPY requirements.txt .
+RUN printf "torch==2.5.1\ntorchvision==0.20.1\ntorchaudio==2.5.1\n" > /build/constraints.txt && \
+    pip3 install --no-cache-dir -c /build/constraints.txt "numpy>=1.24,<2" && \
+    pip3 install --no-cache-dir -c /build/constraints.txt -r requirements.txt && \
+    pip3 install --no-cache-dir --no-build-isolation -c /build/constraints.txt \
+        waymo-open-dataset-tf-2-12-0 && \
+    python3 -c "import torch; assert torch.version.cuda=='11.8', torch.version.cuda; print('torch', torch.__version__)"
+
+# Gaussian Splatting CUDA extensions. Cloned to /opt so a runtime
+# `-v /data/byungk:/workspace` bind mount can't shadow it. Stage 10 honours
+# GS_ROOT, so point it here.
+ENV TORCH_CUDA_ARCH_LIST="8.6"
+ENV GS_ROOT=/opt/gaussian-splatting
+RUN git clone --recursive https://github.com/graphdeco-inria/gaussian-splatting.git \
+        /opt/gaussian-splatting && \
+    cd /opt/gaussian-splatting && \
+    pip3 install --no-cache-dir -c /build/constraints.txt submodules/diff-gaussian-rasterization && \
+    pip3 install --no-cache-dir -c /build/constraints.txt submodules/simple-knn && \
+    pip3 install --no-cache-dir plyfile
+
+# AB3DMOT (Stage 09 Kalman tracker). Also in /opt to survive the mount.
+RUN git clone --depth 1 https://github.com/xinshuoweng/AB3DMOT.git /opt/AB3DMOT
+ENV AB3DMOT_ROOT=/opt/AB3DMOT
+
+# LingBot-MAP as an importable library. Its pyproject has no torch pin, so the
+# install won't disturb our torch 2.5.1. Regular (non-editable) install — the
+# container never edits lingbot, and `-e` needs PEP 660's build_editable hook
+# which the isolated build env's setuptools lacked. Pre-upgrade setuptools and
+# skip build isolation so the build_wheel path uses a known-good toolchain.
+# Re-assert numpy/opencv pins afterwards (standalone setup needed opencv<4.13).
+RUN git clone https://github.com/Robbyant/lingbot-map.git /opt/lingbot-map && \
+    pip3 install --no-cache-dir -U "setuptools>=70" wheel && \
+    pip3 install --no-cache-dir --no-build-isolation -c /build/constraints.txt /opt/lingbot-map && \
+    pip3 install --no-cache-dir -c /build/constraints.txt "numpy>=1.24,<2" "opencv-python<4.13"
+
+# No COPY/ENTRYPOINT: the project code is bind-mounted at run time and executed
+# from /workspace/3DGS, so a `git pull` on the host is reflected immediately.
+WORKDIR /workspace/3DGS

@@ -1,0 +1,11 @@
+.git
+__pycache__
+*.pt
+*.pyc
+ai-pipeline/outputs/
+ai-pipeline/data/
+ai-pipeline/third_party/
+.venv/
+venv/
+node_modules/
+.DS_Store

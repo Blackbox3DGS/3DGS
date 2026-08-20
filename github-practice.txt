@@ -1,0 +1,3 @@
+GitHub practice file
+
+You can edit, stage, commit, and push this file while practicing.

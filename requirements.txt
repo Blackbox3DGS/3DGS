@@ -1,0 +1,37 @@
+# Core
+numpy>=1.24,<2
+protobuf
+grpcio-tools
+tqdm
+pillow
+opencv-python
+scipy
+
+# Waymo TFRecord parsing
+tensorflow
+# waymo-open-dataset-tf-2-12-0 installed separately in Dockerfile (needs --no-build-isolation)
+
+# Detection / Tracking
+ultralytics
+lap>=0.5.12
+
+# Depth / 3DGS (CPU by default; replace with CUDA wheels on server as needed)
+torch
+torchvision
+torchaudio
+transformers
+
+# Point cloud processing
+open3d
+
+# 3D trajectory Kalman filter (Stage 09 — used via third_party/AB3DMOT)
+filterpy>=1.4.5
+
+# Stage 04g (optional): LingBot-MAP feed-forward 3D reconstruction. Replaces
+# COLMAP + Depth Anything + scale alignment with a single transformer pass.
+# Not on PyPI — install editable from the sibling repo, then point
+# LINGBOT_MODEL_PATH at a HuggingFace repo id or a local checkpoint dir:
+#   pip install -e ../lingbot-map
+#   export LINGBOT_MODEL_PATH=<repo-id-or-path>
+# (lingbot-map's pyproject pins PyTorch 2.8 + CUDA 12.8; FlashInfer is optional
+# and falls back to SDPA. See lingbot-map/README.md.)

@@ -1,0 +1,15 @@
+services:
+  pipeline:
+    build: .
+    runtime: nvidia
+    shm_size: '8g'
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
+      - TF_FORCE_GPU_ALLOW_GROWTH=true
+    volumes:
+      - ./ai-pipeline/data:/workspace/ai-pipeline/data
+      - ./ai-pipeline/outputs:/workspace/ai-pipeline/outputs
+      - ./ai-pipeline/third_party:/workspace/ai-pipeline/third_party
+      - ./ai-pipeline/src:/workspace/ai-pipeline/src
+      - ./ai-pipeline/scripts:/workspace/ai-pipeline/scripts
+    working_dir: /workspace
