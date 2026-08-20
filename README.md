@@ -295,7 +295,15 @@ python3 ai-pipeline/scripts/evaluate_waymo.py evaluate \
 ### 5) 다이어그램 재생성
 
 ```bash
-python3 tools/make_diagrams.py    # docs/figures/*.png
+python3 tools/make_diagrams.py    # docs/figures/*.svg + *.png
+```
+
+SVG 가 원본이고 PNG 는 README 표시용 래스터본입니다. PNG 까지 만들려면
+헤드리스 Chromium 과 [Pretendard](https://github.com/orioncactus/pretendard) 설치가 필요합니다.
+
+```bash
+pip install playwright pillow && playwright install chromium
+python3 tools/make_diagrams.py --svg-only   # 래스터화 없이 SVG 만
 ```
 
 ---

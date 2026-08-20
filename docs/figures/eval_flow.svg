@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="464"
+     viewBox="0 0 860 464" role="img" aria-label="정량 평가 데이터 흐름 — Waymo GT 대비">
+  <title>정량 평가 데이터 흐름 — Waymo GT 대비</title>
+  <defs>
+    <marker id="tip" viewBox="0 0 8 8" refX="7" refY="4"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0,1 L 7,4 L 0,7 z" fill="#A8C6B8"/>
+    </marker>
+    <marker id="tipa" viewBox="0 0 8 8" refX="7" refY="4"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0,1 L 7,4 L 0,7 z" fill="#5CBFAE"/>
+    </marker>
+  </defs>
+  <rect width="860" height="464" fill="#0F2E1F"/>
+<text x="32" y="44" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="700" fill="#FFFFFF" text-anchor="start">정량 평가(Stage 13) 데이터 흐름 — Waymo GT 대비</text>
+<rect x="24" y="72" width="640" height="120" rx="8" fill="rgba(255,255,255,0.030)" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+<text x="648" y="93" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="600" fill="#8FB2A1" text-anchor="end" letter-spacing="0.06em">정답 데이터</text>
+<rect x="24" y="200" width="640" height="120" rx="8" fill="rgba(255,255,255,0.030)" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+<text x="648" y="221" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="600" fill="#8FB2A1" text-anchor="end" letter-spacing="0.06em">추정 데이터</text>
+<path d="M 232,140 H 248" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 440,140 H 456" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 232,268 H 248" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 440,268 H 456" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 552.0,176 V 232" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 496,176 V 196 Q 496,204 488,204 H 352.0 Q 344.0,204 344.0,212 V 232" fill="none" stroke="#A8C6B8" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#tip)"/>
+<text x="420.0" y="196" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="middle">2D IoU 대응</text>
+<path d="M 648,268 H 688" fill="none" stroke="#5CBFAE" stroke-width="1.2" marker-end="url(#tip)"/>
+<path d="M 762.0,320 V 336 Q 762.0,344 754.0,344 H 160 Q 152,344 152,352 V 368" fill="none" stroke="#A8C6B8" stroke-width="1.2" marker-end="url(#tip)"/>
+<rect x="40" y="104" width="192" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="56" y="136.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">Waymo TFRecord</text>
+<text x="56" y="159.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">GT 포즈·3D박스·속도</text>
+<rect x="248" y="104" width="192" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="264" y="136.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">extract-gt</text>
+<text x="264" y="159.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">순수 파이썬 파서</text>
+<rect x="456" y="104" width="192" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="472" y="136.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">gt.json</text>
+<text x="472" y="159.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">199프레임</text>
+<rect x="40" y="232" width="192" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="56" y="264.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">vehicles.json</text>
+<text x="56" y="287.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">추정 궤적 · 뷰어 동일</text>
+<rect x="248" y="232" width="192" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="264" y="264.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">트랙 매칭</text>
+<text x="264" y="287.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">IoU 0.3 초과 다수결</text>
+<rect x="456" y="232" width="192" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="472" y="264.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">좌표 정렬</text>
+<text x="472" y="287.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">중력구속 2D Umeyama</text>
+<rect x="688" y="104" width="148" height="216" rx="8" fill="rgba(92,191,174,0.13)" stroke="#5CBFAE" stroke-width="1"/>
+<text x="704" y="183.0" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#5CBFAE" text-anchor="start">4대 지표</text>
+<text x="704" y="206.0" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">① 위치 오차 (BEV)</text>
+<text x="704" y="223.0" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">② 상대거리 오차</text>
+<text x="704" y="240.0" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">③ ADE / FDE</text>
+<text x="704" y="257.0" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">④ 속도 오차</text>
+<rect x="24" y="368" width="256" height="72" rx="8" fill="#17402D" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>
+<text x="40" y="400.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="18" font-weight="600" fill="#FFFFFF" text-anchor="start">report.md + plots</text>
+<text x="40" y="423.5" font-family="Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="13" font-weight="400" fill="#8FB2A1" text-anchor="start">metrics.json · BEV overlay</text>
+</svg>
