@@ -1,0 +1,40 @@
+# 로컬 개발용 인프라 (MySQL + Redis)
+#   docker compose up -d      # 기동
+#   docker compose down       # 중지 (데이터 유지)
+#   docker compose down -v    # 중지 + 데이터 삭제
+#
+# MySQL root 비밀번호는 application-secret.yml 의 DB_PASSWORD 와 반드시 동일해야 합니다.
+# Spring 의 ddl-auto: update 가 테이블을 자동 생성하므로 빈 DB(youthfi_db)만 있으면 됩니다.
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: 3dgs-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: localpassword   # = application-secret.yml 의 DB_PASSWORD
+      MYSQL_DATABASE: youthfi_db
+      TZ: Asia/Seoul
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-plocalpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: 3dgs-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  mysql_data:
+  redis_data:
