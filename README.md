@@ -214,7 +214,7 @@ LingBot 좌표계는 미터가 아닙니다. 지면 정렬 후 노면이 y=0이 
 
 <p align="center">
   <img src="docs/assets/reconstruction.png" alt="3D 포인트클라우드 재구성 결과" width="640"><br>
-  <sub>단안 영상으로 복원한 도로 배경 포인트클라우드 위에 ego 차량과 주변 차량을 배치</sub>
+  <sub>LiDAR · 다중 카메라 없이 단안 블랙박스 영상만으로 복원한 도로 배경 포인트클라우드</sub>
 </p>
 
 `/clips` 경로에서 실제 사고 영상 7종(crash2–crash12)의 재구성 결과를 클립 브라우저로 비교할 수 있습니다.
