@@ -1,2 +1,5 @@
 venv/
 .DS_Store
+
+# tools/make_report.py 기본 출력 폴더
+report_out/
