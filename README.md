@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="docs/assets/banner.png" alt="ReScene — 3D Accident Scene Reconstruction" width="720">
-</p>
+
 
 <h1 align="center">ReScene</h1>
 
